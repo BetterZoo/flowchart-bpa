@@ -8,7 +8,7 @@ assert b.group(2).lstrip().startswith('"use strict";')
 s = s[:b.start(2)] + app + s[b.end(2):]
 # v1.9.0: Supabase client library (UMD) right before the app script
 s = s[:b.start(1)] + '<script>/* @supabase/supabase-js 2.119.2 (MIT) */\n' + sblib + '\n</script>' + s[b.start(1):]
-VER = 'v1.9.0'
+VER = 'v1.9.1'
 s = re.sub(r'<title>.*?</title>', '<title>Flowchart BPA '+VER+' — Notasi BPMN 2.0</title>', s, count=1, flags=re.S)
 s = s.replace('Professional Workspace · v1.3.8', 'Professional Workspace · '+VER, 1)
 old = '<label class="status-in">Label status <input id="statusLabel" value="DRAFT — Konsultan"></label>'

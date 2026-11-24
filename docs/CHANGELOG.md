@@ -1,5 +1,14 @@
 # Changelog Flowchart BPA
 
+## v1.9.1 — Edit Mulai/Selesai & ganti nama unit (2026-11-24)
+- Klik lingkaran Mulai, Selesai, "Dari L4 lain", atau "Ke L4 lain" di canvas → panel Detail Simbol:
+  - Mulai: ubah label, hapus, atau pindahkan ke aktivitas lain; opsi "sambungkan dari" bila aktivitasnya jadi tanpa pendahulu.
+  - Pemicu dari L4 lain: hapus atau pindahkan ke aktivitas lain (AS-IS: Proses Sesudah di L4 asal ikut disesuaikan).
+  - Selesai: ubah label, hapus dengan "lanjut ke" (label cabang dipertahankan), atau "tambahkan Selesai setelah" aktivitas lain.
+  - Serah terima ke L4 lain: hapus, opsional "lanjut ke" (AS-IS: Proses Sebelum di L4 tujuan ikut disesuaikan).
+  - Pengaman: perubahan yang memutus alur ditolak dengan petunjuk.
+- Ganti nama unit: klik dua kali nama unit di judul lane, atau tombol "✎ Ganti unit" di Pengaturan Swimlane; opsi "Terapkan ke semua L4 yang memakai unit ini" (TO-BE: hanya L4 yang sudah punya rancangan; AS-IS: L4 yang punya rancangan TO-BE dilewati).
+
 ## v1.9.0 — Simpan ke cloud (Supabase) (2026-11-24)
 - Tombol "☁ Cloud": login email tanpa password (magic link), hanya email yang terdaftar di tabel `members`.
 - Simpan pekerjaan di browser sebagai proyek cloud tim; buka proyek tim dari laptop mana pun.

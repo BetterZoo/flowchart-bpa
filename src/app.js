@@ -487,7 +487,7 @@ function _buildDiagram(l4, statusLabel, opts){
       // v1.4.1: many triggers from other L4s -> one Message Start Event listing all sources.
       for(const r of crossRefs){ const d=bpaCrossL4Data(r.code,l4.l4no); if(d){ const list=crossInputs.get(a.l5no)||[]; if(!list.some(x=>x.source===d.source))list.push(d); crossInputs.set(a.l5no,list);} }
       const useLane = lane;
-      const g = mk('offin', lanes[useLane].role, {code:'multi:'+a.l5no, group:crossRefs.map(r=>({code:r.code, note:r.note||'', ext:state.byCode.get(r.code)})), prerow:pack(preRows,useLane)});
+      const g = mk('offin', lanes[useLane].role, {target:a.l5no, code:'multi:'+a.l5no, group:crossRefs.map(r=>({code:r.code, note:r.note||'', ext:state.byCode.get(r.code)})), prerow:pack(preRows,useLane)});
       for(const r of crossRefs) offIn.set(r.code+'|'+a.l5no, g);
       preEdges.push([g, a]);
     }
@@ -507,7 +507,7 @@ function _buildDiagram(l4, statusLabel, opts){
       if(!n){
         // prefer an empty neighbouring activity lane in the current top row, so Mulai and this box sit side by side
         const useLane = lane; // v1.7.0: a trigger sits in the lane of the activity it starts
-        n = mk('offin', lanes[useLane].role, {code:r.code, note:r.note||'', ext:state.byCode.get(r.code), prerow:pack(preRows,useLane)}); offIn.set(okey,n);
+        n = mk('offin', lanes[useLane].role, {target:a.l5no, code:r.code, note:r.note||'', ext:state.byCode.get(r.code), prerow:pack(preRows,useLane)}); offIn.set(okey,n);
       }
       preEdges.push([n, a]);
     }
@@ -605,7 +605,7 @@ function _buildDiagram(l4, statusLabel, opts){
       if(f.kind==='end'){ if(!endHere) endHere = mk('end', lanes[n.lane].role, {code:a.l5no,text:a.endLabel||'Selesai', nearEnd:src}); /* v1.7.0: lane where the flow ends */ t = endHere; }
       else if(f.kind==='code'){
         if(inL4.has(f.code)) t = nodeOf.get(f.code);
-        else { const ok2=f.code+'|'+src.id; t = offOut.get(ok2); if(!t){ t = mk('offout', lanes[n.lane].role, {code:f.code, ext:state.byCode.get(f.code), nearEnd:src}); offOut.set(ok2, t); } } /* v1.7.0: right after, and in the lane of, the step where the process ends */
+        else { const ok2=f.code+'|'+src.id; t = offOut.get(ok2); if(!t){ t = mk('offout', lanes[n.lane].role, {src:a.l5no, code:f.code, ext:state.byCode.get(f.code), nearEnd:src}); offOut.set(ok2, t); } } /* v1.7.0: right after, and in the lane of, the step where the process ends */
       } else continue;
       let label = f.label || '';
       if(f.note) label = label ? label+' ('+f.note+')' : f.note;
@@ -1300,7 +1300,7 @@ function drawNode(n){
   } else if(n.type==='offin' || n.type==='offout'){
     // BPMN Message Start Event (from another L4) / Message End Event (to another L4).
     const end=n.type==='offout', code=n.ext ? n.code : '';
-    o.push('<g'+(code?' data-code="'+esc(code)+'"':'')+' data-message-event="'+(end?'end':'start')+'"><title>'+esc((end?'Lanjut ke ':'Dipicu dari ')+(n.group?n.group.map(g=>g.code).join(', '):n.code))+'</title>');
+    o.push('<g'+(code?' data-code="'+esc(code)+'"':'')+' data-message-event="'+(end?'end':'start')+'" data-ev="'+(end?'hand':'trig')+'" data-ev-act="'+esc(end?(n.src||''):(n.target||''))+'" data-ev-src="'+esc(n.group?n.group.map(g=>g.code).join(','):n.code)+'" style="cursor:pointer"><title>'+esc((end?'Lanjut ke ':'Dipicu dari ')+(n.group?n.group.map(g=>g.code).join(', '):n.code))+'</title>');
     o.push('<circle cx="'+n.cx+'" cy="'+n.cy+'" r="15" fill="'+C.termF+'" stroke="'+C.termS+'" stroke-width="'+(end?3.3:1.4)+'"/>');
     // v1.7.0: plain Start / End Event; the label says which process it comes from or goes to (no envelope).
     o.push(bpmnEventLabel(n, n.evLines, C.termT)+'</g>');
@@ -2525,7 +2525,13 @@ function renderRoles(){
     const sub = d.lanes[ln.i] && (d.nodes.filter(n=>n.type==='act'&&n.lane===ln.i).map(n=>byUnit?String(n.act.posX||''):String(n.act.unitX||'')).filter(Boolean)[0]||'');
     h += '<div class="rcard" data-lane="'+esc(ln.key)+'"><div class="rhead"><span class="k">'+(j+1)+' · '+ln.count+' aktivitas'+(addedOf(ln.key)?' · lane tambahan':'')+'</span><span class="ws-role-name">'+esc(laneShort(nm(ln.key)))+'</span></div>'+
       (sub?'<div class="muted" style="font-size:12px;margin:2px 0 4px">'+esc(sub)+'</div>':'');
-    if(state.renaming===ln.key){
+    if(state.renamingUnit===ln.key){
+      const cu=laneUnitOf(ln.i);
+      h += '<div class="rgrid" style="margin-top:6px"><label for="laneNewUnit">Nama unit baru</label><input id="laneNewUnit" list="unitListR" value="'+esc(cu)+'"></div>'+
+        '<label style="display:block;font-size:13px;margin:4px 0"><input type="checkbox" id="laneUnitAll"> Terapkan ke semua L4 yang memakai unit "'+esc(cu)+'"</label>'+
+        '<p class="ws-field-hint" style="margin:4px 0">Mengubah Unit aktivitas di lane ini pada mode '+esc($('processEditMode').value.toUpperCase())+'.'+($('processEditMode').value==='tobe'?' Untuk semua L4: hanya L4 yang sudah punya rancangan TO-BE.':'')+'</p>'+
+        '<div class="cbtn"><button class="sbtn ok" data-a="laneUnitGo">Simpan unit</button><button class="sbtn" data-a="laneUnitCancel">Batal</button></div>';
+    } else if(state.renaming===ln.key){
       h += '<div class="rgrid" style="margin-top:6px"><label for="laneNewName">Nama '+(byUnit?'unit kerja':'jabatan')+' baru</label><input id="laneNewName" list="'+(byUnit?'unitListR':'posListR')+'" value="'+esc(nm(ln.key))+'"></div>'+
         '<p class="ws-field-hint" style="margin:4px 0">Mengubah '+(byUnit?'Unit':'Jabatan')+' semua aktivitas di lane ini pada mode '+esc($('processEditMode').value.toUpperCase())+'.</p>'+
         '<div class="cbtn"><button class="sbtn ok" data-a="laneRenameGo">Simpan nama</button><button class="sbtn" data-a="laneRenameCancel">Batal</button></div>';
@@ -2534,7 +2540,7 @@ function renderRoles(){
       h += '<div class="rgrid" style="margin-top:6px"><label>Pindahkan '+ln.count+' aktivitas ke</label><select data-rf="target">'+opts+'</select></div>'+
         '<div class="cbtn"><button class="sbtn no" data-a="laneRemoveGo">Pindahkan &amp; hapus lane</button><button class="sbtn" data-a="laneRemoveCancel">Batal</button></div>';
     } else {
-      h += '<div class="cbtn"><button class="sbtn" data-a="laneRename" title="Ganti nama lane">✎ Ganti nama</button><button class="sbtn" data-a="laneUp"'+(j===0?' disabled':'')+' title="Geser ke kiri">⇤ Kiri</button><button class="sbtn" data-a="laneDown"'+(j===actL.length-1?' disabled':'')+' title="Geser ke kanan">Kanan ⇥</button>'+
+      h += '<div class="cbtn"><button class="sbtn" data-a="laneRename" title="Ganti nama lane">✎ Ganti nama</button>'+(byUnit?'':'<button class="sbtn" data-a="laneUnit" title="Ganti nama unit kerja di lane ini">✎ Ganti unit</button>')+'<button class="sbtn" data-a="laneUp"'+(j===0?' disabled':'')+' title="Geser ke kiri">⇤ Kiri</button><button class="sbtn" data-a="laneDown"'+(j===actL.length-1?' disabled':'')+' title="Geser ke kanan">Kanan ⇥</button>'+
         '<button class="sbtn no" data-a="laneRemove">'+(ln.count?'Pindahkan aktivitas…':'Hapus lane')+'</button></div>';
     }
     h += '</div>';
@@ -2551,6 +2557,7 @@ function renderRoles(){
   const units=new Set(); Object.values(state.unitmap).forEach(m=>Object.values(m).forEach(v=>units.add(v))); state.rows.forEach(r=>{if(r.unitX)units.add(r.unitX);});
   h += '<datalist id="unitListR">'+[...units].sort().map(v=>'<option value="'+esc(v)+'">').join('')+'</datalist>';
   $('detail').innerHTML = h;
+  const nu=$('laneNewUnit'); if(nu) nu.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); renameUnit(g, state.renamingUnit, nu.value, !!($('laneUnitAll')&&$('laneUnitAll').checked)); } if(e.key==='Escape'){ state.renamingUnit=null; renderRoles(); } };
   const ni=$('laneNewName'); if(ni) ni.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); renameLane(g, state.renaming, ni.value); } if(e.key==='Escape'){ state.renaming=null; renderRoles(); } };
 }
 function roleChanged(){ saveRoles(); savePos(); saveLaneSettings(); updatePosToggle(); redraw(); renderTree(); if(state.sideMode==='roles') renderRoles(); }
@@ -2627,6 +2634,9 @@ function onLaneClick(a, b, g){
   if(a==='laneRemoveCancel'){ state.removing = null; renderRoles(); return true; }
   if(a==='laneRename'){ state.renaming = key; state.removing = null; renderRoles(); setTimeout(()=>{ const i=$('laneNewName'); if(i){ i.focus(); i.select(); } },0); return true; }
   if(a==='laneRenameCancel'){ state.renaming = null; renderRoles(); return true; }
+  if(a==='laneUnit'){ state.renamingUnit = key; state.renaming = null; state.removing = null; renderRoles(); setTimeout(()=>{ const i=$('laneNewUnit'); if(i){ i.focus(); i.select(); } },0); return true; }
+  if(a==='laneUnitCancel'){ state.renamingUnit = null; renderRoles(); return true; }
+  if(a==='laneUnitGo'){ renameUnit(g, key, ($('laneNewUnit').value||''), !!($('laneUnitAll')&&$('laneUnitAll').checked)); return true; }
   if(a==='laneRenameGo'){ renameLane(g, key, ($('laneNewName').value||'')); return true; }
   if(a==='laneRemoveGo'){
     const target = card.querySelector('[data-rf="target"]').value, mode = $('processEditMode').value, byUnit = laneMode(g.l4no)==='unit';
@@ -3068,7 +3078,7 @@ function deleteFormHtml(rows,a){
 function applyCrossPatches(px){
   for(const x of (px&&px.out)||[]){ const r=state.rows.find(z=>z.l5no===x.code); if(!r) continue;
     const fs=parseFlow(r[x.field]); const has=fs.some(f=>f.kind==='code'&&f.code===x.to);
-    const nf=fs.flatMap(f=>f.kind==='code'&&f.code===x.from?(has?[]:[{...f,code:x.to}]):[f]); r[x.field]=flowString(nf); r._asisEdited=true; }
+    const nf=fs.flatMap(f=>f.kind==='code'&&f.code===x.from?((has||!x.to)?[]:[{...f,code:x.to}]):[f]); r[x.field]=flowString(nf); r._asisEdited=true; }
 }
 function structuralConflict(g,code,op,mode){
   const absorbed=mode==='tobe'?materializeDraft(g).ids:new Set();const active=(state.elab[g.l4no]||[]).filter(i=>i.status!=='rejected'&&i.type!=='graph'&&!absorbed.has(i.id));
@@ -3243,7 +3253,10 @@ $('canvas').ondblclick = e => { const g = e.target.closest('[data-code]');
       if($('processEditMode').value==='view'){ toast('Pilih mode AS-IS atau TO-BE untuk mengedit gateway.'); return; }
       structuralEditor(code,'connector','decision'); return; } }
   if(!g && state.diagram){ const svg=$('canvas').querySelector('svg'); const r=svg&&svg.getBoundingClientRect(); const y=r?(e.clientY-r.top)/state.zoom:-1, ln=laneAt(svgX(e));
-    if(ln && ln.kind==='act' && y>=state.diagram.top && y<=state.diagram.bodyTop){ e.preventDefault(); openRoles(); state.renaming=ln.key; renderRoles(); setTimeout(()=>{ const i=$('laneNewName'); if(i){ i.focus(); i.select(); i.closest('.rcard')?.scrollIntoView({block:'center'}); } },0); return; } } if(g && !e.target.closest('.dmd') && state.byCode.has(g.dataset.code)){ e.preventDefault(); if($('processEditMode').value==='view') showDetail(g.dataset.code, true); else directEditor(g.dataset.code); } };
+    if(ln && ln.kind==='act' && y>=state.diagram.top && y<=state.diagram.bodyTop){ e.preventDefault(); openRoles();
+      const unit=laneUnitOf(state.diagram.lanes.indexOf(ln)), tx=e.target.closest('text'), onUnit=laneMode(state.current)!=='unit' && unit && tx && unit.startsWith(String(tx.textContent||'').replace(/…$/,'').trim()) && String(tx.textContent||'').trim().length>1;
+      if(onUnit){ state.renamingUnit=ln.key; state.renaming=null; renderRoles(); setTimeout(()=>{ const i=$('laneNewUnit'); if(i){ i.focus(); i.select(); i.closest('.rcard')?.scrollIntoView({block:'center'}); } },0); return; }
+      state.renaming=ln.key; renderRoles(); setTimeout(()=>{ const i=$('laneNewName'); if(i){ i.focus(); i.select(); i.closest('.rcard')?.scrollIntoView({block:'center'}); } },0); return; } } if(g && !e.target.closest('.dmd') && state.byCode.has(g.dataset.code)){ e.preventDefault(); if($('processEditMode').value==='view') showDetail(g.dataset.code, true); else directEditor(g.dataset.code); } };
 
 function symbolMap(a){try{const v=JSON.parse(a.symbolDocs||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{};}catch(e){return {};}}
 function symbolDocLabel(a,t,p){return symbolMap(a)[t+'|'+p]||'';}
@@ -3287,7 +3300,7 @@ function symbolEditor(el){
  if(term&&a){const b=document.createElement('button');b.className='sbtn';b.textContent='Edit alur aktivitas';b.onclick=()=>directEditor(a.l5no);detail.append(b);if(linked.length===1){const m=document.createElement('button');m.className='sbtn';m.textContent='Pindahkan aktivitas terhubung';m.onclick=()=>structuralEditor(a.l5no,'move');detail.append(m);}}
 }
 
-$('canvas').onclick = e => { const sym=e.target.closest('[data-symbol]');if(sym)return symbolEditor(sym); if(e.target.closest('.dmd') || e.target.closest('#lanePop')) return; const xx = e.target.closest('[data-x]'); if(xx) return openExtra(xx.dataset.x); const el = e.target.closest('[data-elab]'); if(el){const g=state.l4s.get(state.current),i=g&&(state.elab[g.l4no]||[]).find(x=>x.id===el.dataset.elab);if($('processEditMode').value==='tobe'&&i?.type==='newact')return directEditor(i.id);if(i&&ANNOT_TYPES.includes(i.type)){if($('processEditMode').value==='tobe')return directEditor(i.after);if($('processEditMode').value==='asis')return directEditor(i.after);return showDetail(i.after);}return openElab(el.dataset.elab);} const g = e.target.closest('[data-code]'); if(g){ if($('processEditMode').value!=='view' ) return directEditor(g.dataset.code); if(state.sideMode==='extra' && !$('detail').classList.contains('hidden')) return openExtra(g.dataset.code); showDetail(g.dataset.code); } };
+$('canvas').onclick = e => { const ev=e.target.closest('[data-ev]'); if(ev) return eventEditor(ev.dataset.ev, ev.dataset.evAct, ev.dataset.evSrc); const sym=e.target.closest('[data-symbol]');if(sym){ if(sym.dataset.symbol==='start'||sym.dataset.symbol==='end') return eventEditor(sym.dataset.symbol, sym.dataset.symbolCode||''); return symbolEditor(sym); } if(e.target.closest('.dmd') || e.target.closest('#lanePop')) return; const xx = e.target.closest('[data-x]'); if(xx) return openExtra(xx.dataset.x); const el = e.target.closest('[data-elab]'); if(el){const g=state.l4s.get(state.current),i=g&&(state.elab[g.l4no]||[]).find(x=>x.id===el.dataset.elab);if($('processEditMode').value==='tobe'&&i?.type==='newact')return directEditor(i.id);if(i&&ANNOT_TYPES.includes(i.type)){if($('processEditMode').value==='tobe')return directEditor(i.after);if($('processEditMode').value==='asis')return directEditor(i.after);return showDetail(i.after);}return openElab(el.dataset.elab);} const g = e.target.closest('[data-code]'); if(g){ if($('processEditMode').value!=='view' ) return directEditor(g.dataset.code); if(state.sideMode==='extra' && !$('detail').classList.contains('hidden')) return openExtra(g.dataset.code); showDetail(g.dataset.code); } };
 $('detail').addEventListener('click', onSideClick);
 $('detail').addEventListener('change', e => { if(onRoleChange(e)) return; onSideChange(e); });
 $('detail').addEventListener('input', e => { if(e.target.id==='freeTxt') state.freeText = e.target.value; else if(e.target.id==='newRole') state.newRoleText = e.target.value; else onExtraInput(e); });
@@ -3392,3 +3405,125 @@ if(v!=null&&state.current)redraw();})();
 /* v1.6.4: legend names for Dokumen / Data (Pengaturan). */
 (()=>{for(const [id,key] of [['legendDoc','flowbpa:legendDoc'],['legendData','flowbpa:legendData']]){const el=$(id);if(!el)continue;const v=store.get(key);if(v!=null)el.value=v;
 el.oninput=()=>{store.set(key,el.value);clearTimeout(window._lg);window._lg=setTimeout(()=>{if(state.current)redraw();},300);};}})();
+
+/* ================= v1.9.1: edit Mulai / Selesai / pemicu & serah terima lintas L4 ================= */
+function eventChange(rows, s){
+  rows=JSON.parse(JSON.stringify(rows));
+  const by=c=>rows.find(r=>r.l5no===c), a=by(s.code); if(!a) throw Error('Aktivitas '+s.code+' tidak ditemukan.');
+  const l4=a.l4no, local=new Set(rows.map(r=>r.l5no)), patches={out:[],warn:[]};
+  const addPrev=(t,f)=>{ const p=parseFlow(t.prev); if(!p.some(x=>x.kind===f.kind&&(x.kind!=='code'||x.code===f.code))) (f.kind==='start'?p.unshift(f):p.push(f)); t.prev=flowString(p); };
+  const linkFrom=(fromCode)=>{ if(!fromCode) return; const p=by(fromCode); if(!p) throw Error('Aktivitas '+fromCode+' tidak ditemukan.'); if(p===a) throw Error('Pilih aktivitas lain sebagai pendahulu.');
+    const nx=parseFlow(p.next); if(nx.some(f=>f.label)) throw Error(fromCode+' punya gateway. Sambungkan lewat panel gateway (klik dua kali belah ketupatnya).');
+    if(!nx.some(f=>f.kind==='code'&&f.code===a.l5no)) nx.push({kind:'code',code:a.l5no}); p.next=flowString(nx); addPrev(a,{kind:'code',code:fromCode}); };
+  const linkTo=(isRem, nextTo)=>{ // replace removed end/handoff flows of a by nextTo, in place (keeps branch labels and order)
+    const fl=parseFlow(a.next), removed=fl.filter(isRem), keep=fl.filter(f=>!isRem(f));
+    if(nextTo){ const t=by(nextTo); if(!t) throw Error('Aktivitas '+nextTo+' tidak ditemukan.'); if(t===a) throw Error('Pilih aktivitas lain sebagai kelanjutan.'); addPrev(t,{kind:'code',code:a.l5no}); }
+    else for(const f of removed) if(f.label && !keep.some(k=>k.label===f.label)) throw Error('Cabang "'+f.label+'" jadi tidak punya tujuan. Pilih "lanjut ke" untuk cabang itu.');
+    const out=[], done=new Set();
+    for(const f of fl){ if(!isRem(f)){ out.push(f); continue; } const lab=f.label||''; if(nextTo && !done.has(lab)){ done.add(lab); if(!fl.some(x=>!isRem(x)&&(x.label||'')===lab&&x.kind==='code'&&x.code===nextTo)) out.push({kind:'code',code:nextTo,label:lab,note:''}); } }
+    if(!out.length) throw Error('Aktivitas '+a.l5no+' jadi tidak punya kelanjutan. Pilih "lanjut ke".');
+    a.next=flowString(out); };
+  const addEndTo=(code)=>{ if(!code) return; const t=by(code); if(!t) throw Error('Aktivitas '+code+' tidak ditemukan.'); const nx=parseFlow(t.next); if(nx.some(f=>f.label)) throw Error(code+' punya gateway. Atur Selesai lewat panel gateway.'); if(!nx.some(f=>f.kind==='end')) nx.push({kind:'end'}); t.next=flowString(nx); if(a.endLabel&&!t.endLabel) t.endLabel=a.endLabel; };
+  if(s.kind==='start'){
+    if(s.label!==undefined) a.startLabel=s.label==='Mulai'?'':s.label;
+    if(s.remove){ const pv=parseFlow(a.prev); if(!pv.some(f=>f.kind==='start')) throw Error('Aktivitas ini tidak punya titik Mulai.');
+      a.prev=flowString(pv.filter(f=>f.kind!=='start'));
+      if(s.addTo){ const t=by(s.addTo); if(!t) throw Error('Aktivitas tujuan tidak ditemukan.'); addPrev(t,{kind:'start'}); if(a.startLabel&&!t.startLabel) t.startLabel=a.startLabel; }
+      a.startLabel=''; linkFrom(s.connectFrom); }
+  } else if(s.kind==='trig'){
+    const pv=parseFlow(a.prev), f0=pv.find(f=>f.kind==='code'&&f.code===s.src); if(!f0) throw Error('Pemicu dari '+s.src+' tidak ditemukan di '+a.l5no+'.');
+    a.prev=flowString(pv.filter(f=>!(f.kind==='code'&&f.code===s.src)));
+    a.dataFrom=String(a.dataFrom||'').split(/[;,\s]+/).filter(c=>c&&c!==s.src).join('; ');
+    if(s.addTo){ const t=by(s.addTo); if(!t) throw Error('Aktivitas tujuan tidak ditemukan.'); addPrev(t,{kind:'code',code:s.src,note:f0.note||''}); }
+    patches.out.push({code:s.src, field:'next', from:a.l5no, to:s.addTo||''});
+    linkFrom(s.connectFrom);
+  } else if(s.kind==='end'){
+    if(s.label!==undefined) a.endLabel=s.label==='Selesai'?'':s.label;
+    if(s.remove){ const fl=parseFlow(a.next), rem=fl.filter(f=>f.kind==='end'); if(!rem.length) throw Error('Aktivitas ini tidak punya titik Selesai.');
+      const carry=a.endLabel; linkTo(f=>f.kind==='end', s.nextTo); a.endLabel=''; if(s.addTo){ a.endLabel=carry; addEndTo(s.addTo); a.endLabel=''; } }
+  } else if(s.kind==='hand'){
+    const fl=parseFlow(a.next), rem=fl.filter(f=>f.kind==='code'&&f.code===s.src); if(!rem.length) throw Error('Serah terima ke '+s.src+' tidak ditemukan.');
+    linkTo(f=>f.kind==='code'&&f.code===s.src, s.nextTo); patches.out.push({code:s.src, field:'prev', from:a.l5no, to:''});
+  } else throw Error('Jenis simbol tidak dikenal.');
+  const outside=state.rows.filter(r=>r.l4no!==l4);
+  const before=validateWorkbookRows([...outside,...structuralRows(state.l4s.get(l4),s.mode)]), old=new Set(before.map(w=>w.code+'|'+w.msg));
+  const issues=validateWorkbookRows([...outside,...rows]).filter(w=>!old.has(w.code+'|'+w.msg));
+  const crossMsg=w=>w.l4!==l4||(String(w.msg).match(/(?:mengarah ke|menyebut|mencantumkan) (\d+\.\d+(?:\.\d+)?)/g)||[]).some(x=>!local.has(x.split(' ').pop()));
+  const hard=issues.filter(w=>!crossMsg(w));
+  if(hard.length){ const h=hard[0]; if(/tidak dapat dicapai|Proses Sebelum kosong/.test(h.msg)) throw Error('Aktivitas '+h.code+' jadi tidak tersambung dari Mulai. Isi "sambungkan dari" atau "pindahkan ke" supaya alurnya tidak putus.'); if(/SELESAI/.test(h.msg)) throw Error('Proses jadi tidak punya jalur ke Selesai. Isi "tambahkan Selesai setelah" atau "lanjut ke".'); throw Error('Perubahan ditolak: '+h.msg); }
+  rows.patches=patches; return rows;
+}
+function eventEditor(kind, actCode, src){
+  const g=state.l4s.get(state.current), mode=$('processEditMode').value; if(!g) return;
+  const detail=$('detail'); state.sideMode='symbol'; delete detail.dataset.code; ['btnElab','btnX','btnR'].forEach(x=>$(x).classList.remove('on'));
+  const view=mode==='view'; let rows=[]; try{ rows=view?(state.diagram?.acts||g.acts):structuralRows(g,mode); }catch(e){ toast(e.message); return; }
+  const acts=rows.filter(r=>!isGateRow(r)), a=rows.find(r=>r.l5no===actCode);
+  const opt=(sel,ph)=>'<option value="">'+esc(ph)+'</option>'+acts.filter(r=>r.l5no!==actCode).map(r=>'<option value="'+esc(r.l5no)+'"'+(r.l5no===sel?' selected':'')+'>'+esc(r.l5no+' — '+r.l5)+'</option>').join('');
+  const srcs=String(src||'').split(',').filter(Boolean), ext=c=>{ const r=state.byCode.get(c); return c+(r?' — '+r.l5:''); };
+  const T={start:'Titik Mulai',end:'Titik Selesai',trig:'Dipicu dari L4 lain',hand:'Lanjut ke L4 lain'}[kind];
+  let h='<button class="tb x" data-a="close">✕</button><div class="ws-panel-title">Detail Simbol</div><h3>'+esc(T)+'</h3>';
+  if(!a){ detail.innerHTML=h+'<p class="muted">Simbol ini tidak terhubung ke aktivitas yang bisa diedit.</p>'; detail.classList.remove('hidden'); return; }
+  h+='<p class="muted">'+esc({start:'Mulai sebelum ',end:'Selesai setelah ',trig:'Memicu ',hand:'Dikirim dari '}[kind]+a.l5no+' — '+a.l5)+'</p>';
+  if(view){ detail.innerHTML=h+'<p class="ws-field-hint">Pilih mode AS-IS atau TO-BE untuk mengubah simbol ini.</p>'; detail.classList.remove('hidden'); return; }
+  const lab=kind==='start'?(a.startLabel||'Mulai'):kind==='end'?(a.endLabel||'Selesai'):'';
+  if(kind==='start'||kind==='end') h+='<label for="evLabel">Label</label><input id="evLabel" maxlength="120" value="'+esc(lab)+'"><div class="cbtn"><button class="sbtn" id="evSaveLabel">Simpan label</button></div>';
+  if(kind==='trig'&&srcs.length>1) h+='<label for="evSrc">Pemicu</label><select id="evSrc">'+srcs.map(c=>'<option value="'+esc(c)+'">'+esc(ext(c))+'</option>').join('')+'</select>';
+  if(kind==='hand') h+='<p>Serah terima ke <b>'+esc(ext(srcs[0]))+'</b>.</p>';
+  h+='<div class="ws-section"><strong class="ws-section-title">'+esc({start:'Hapus / pindahkan Mulai',end:'Hapus / pindahkan Selesai',trig:'Hapus / pindahkan pemicu',hand:'Hapus serah terima'}[kind])+'</strong>';
+  if(kind==='start'||kind==='trig'){
+    h+='<label for="evAddTo">Pindahkan ke aktivitas (opsional)</label><select id="evAddTo">'+opt('','— tidak dipindah, hapus saja —')+'</select>'+
+       '<label for="evFrom">Sambungkan '+esc(a.l5no)+' dari (opsional)</label><select id="evFrom">'+opt('','— tidak perlu —')+'</select>'+
+       '<p class="ws-field-hint">Kalau setelah dihapus '+esc(a.l5no)+' tidak punya aktivitas sebelumnya, pilih dari aktivitas mana alurnya datang.'+(kind==='trig'?' Di AS-IS, Proses Sesudah di L4 asal ikut disesuaikan; di TO-BE L4 asal tetap seperti semula.':'')+'</p>';
+  } else {
+    h+='<label for="evNext">'+esc(a.l5no)+' lanjut ke (opsional)</label><select id="evNext">'+opt('','— tidak perlu —')+'</select>'+
+      (kind==='end'?'<label for="evAddTo">Tambahkan Selesai setelah (opsional)</label><select id="evAddTo">'+opt('','— tidak perlu —')+'</select>':'')+
+      '<p class="ws-field-hint">Kalau setelah dihapus '+esc(a.l5no)+' tidak punya kelanjutan, pilih "lanjut ke".'+(kind==='hand'?' Di AS-IS, Proses Sebelum di L4 tujuan ikut disesuaikan.':'')+'</p>';
+  }
+  h+='<div class="cbtn"><button class="sbtn no" id="evRemove">'+esc({start:'Hapus Mulai',end:'Hapus Selesai',trig:'Hapus pemicu',hand:'Hapus serah terima'}[kind])+'</button></div></div>';
+  detail.innerHTML=h; detail.classList.remove('hidden');
+  const run=(spec,msg)=>{ const old=$('evError'); if(old) old.remove();
+    try{
+      if(state.current!==g.l4no||$('processEditMode').value!==mode) throw Error('Buka kembali simbol pada mode aktif.');
+      if(mode==='asis'&&draftGraph(g)) throw Error('Selesaikan rancangan TO-BE sebelum koreksi AS-IS.');
+      const fresh=structuralRows(g,mode), absorbed=consumedIds(fresh), result=eventChange(fresh,{...spec,code:actCode,mode}), px=result.patches;
+      if(!spec.labelOnly){ const cross=uniq(px.out.map(x=>x.code)); if(!confirm(msg+(cross.length?(mode==='asis'?'\n\nHubungan di '+cross.join(', ')+' ikut disesuaikan.':'\n\nCatatan: '+cross.join(', ')+' di AS-IS masih mencatat hubungan lama.'):''))) return; }
+      const prior=snapshot(); storageFailed=false;
+      if(mode==='asis'){ result.forEach(r=>r._asisEdited=true); applyCrossPatches(px); ingest([...state.rows.filter(r=>r.l4no!==g.l4no),...result],state.fileName); select(g.l4no); }
+      else saveUnifiedDraft(g,result,absorbed,'Ubah simbol '+kind+' '+actCode);
+      undoStack.push({before:prior,after:snapshot()}); detail.classList.add('hidden'); state.sideMode=null;
+      if(!storageFailed) toast(spec.labelOnly?'Label disimpan.':'Perubahan disimpan.');
+    }catch(e){ const p=document.createElement('p'); p.id='evError'; p.setAttribute('role','alert'); p.style.cssText='color:#a21d32;font-weight:600;margin:10px 0'; p.textContent=e.message; $('evRemove').parentElement.insertAdjacentElement('beforebegin',p); toast(e.message,9000); } };
+  const v=id=>($(id)&&$(id).value)||'';
+  if($('evSaveLabel')) $('evSaveLabel').onclick=()=>{ const t=v('evLabel').trim(); if(!t) return toast('Label wajib diisi.'); run({kind,label:t,labelOnly:true},''); };
+  $('evRemove').onclick=()=>{
+    const spec={kind,remove:true,src:kind==='trig'?(v('evSrc')||srcs[0]):srcs[0],addTo:v('evAddTo'),connectFrom:v('evFrom'),nextTo:v('evNext')};
+    const what={start:'titik Mulai sebelum '+actCode,end:'titik Selesai setelah '+actCode,trig:'pemicu dari '+spec.src+' ke '+actCode,hand:'serah terima '+actCode+' ke '+spec.src}[kind];
+    run(spec,(spec.addTo?'Pindahkan ':'Hapus ')+what+(spec.addTo?' ke '+spec.addTo:'')+' pada '+(mode==='asis'?'AS-IS':'TO-BE')+'?');
+  };
+}
+
+/* ================= v1.9.1: ganti nama unit (subjudul lane) ================= */
+function laneUnitOf(laneIdx){ const d=state.diagram; if(!d) return ''; const cnt=new Map(); for(const n of d.nodes) if(n.type==='act'&&n.lane===laneIdx&&n.act){ const u=String(n.act.unitX||'').trim()||unitFor(state.current,n.act.role,n.act); if(u) cnt.set(u,(cnt.get(u)||0)+1); } return [...cnt].sort((x,y)=>y[1]-x[1])[0]?.[0]||''; }
+function renameUnit(g, laneKey, raw, allL4){
+  const mode=$('processEditMode').value, newU=String(raw||'').replace(/\s+/g,' ').trim(); if(!newU){ toast('Nama unit tidak boleh kosong.'); return; }
+  const idx=state.diagram.lanes.findIndex(l=>l.key===laneKey), oldU=laneUnitOf(idx);
+  if(mode==='view'){ toast('Pilih mode AS-IS atau TO-BE dulu untuk mengganti nama unit.'); return; }
+  if(oldU===newU){ state.renamingUnit=null; renderRoles(); return; }
+  const prior=snapshot(); storageFailed=false; let n=0, l4n=0, skipped=[];
+  const touch=(rows, pick)=>{ let k=0; for(const r of rows) if(!isGateRow(r)&&pick(r)){ r.unitX=newU; if(mode==='asis') r._asisEdited=true; k++; } return k; };
+  const isOld=(l4no,r)=>(String(r.unitX||'').trim()||unitFor(l4no,r.role,r))===oldU;
+  const targets=allL4?[...state.l4s.values()]:[g];
+  if(mode==='tobe'){
+    for(const x of targets){ if(x.l4no!==g.l4no && !draftGraph(x)) continue; const d=materializeDraft(x); const k=touch(d.rows, r=>x.l4no===g.l4no&&!allL4?actLaneKey(x.l4no,r)===laneKey:isOld(x.l4no,r)); if(k){ saveUnifiedDraft(x,d.rows,d.ids,'Ganti nama unit '+oldU+' → '+newU); n+=k; l4n++; } }
+  } else {
+    let changed=false;
+    for(const x of targets){ if(x.l4no!==g.l4no && draftGraph(x)){ if(state.rows.some(r=>r.l4no===x.l4no&&isOld(x.l4no,r))) skipped.push(x.l4no); continue; }
+      if(x.l4no===g.l4no && draftGraph(x)){ toast('Selesaikan rancangan TO-BE sebelum koreksi AS-IS.'); return; }
+      const k=touch(state.rows.filter(r=>r.l4no===x.l4no), r=>x.l4no===g.l4no&&!allL4?actLaneKey(x.l4no,r)===laneKey:isOld(x.l4no,r)); if(k){ n+=k; l4n++; changed=true; } }
+    // role-level fallbacks (Pemetaan Unit) that produced the old name
+    for(const [l4no,m] of Object.entries(state.unitmap)) if(allL4||l4no===g.l4no) for(const [role,v] of Object.entries(m||{})) if(v===oldU) m[role]=newU;
+    if(changed){ ingest(state.rows,state.fileName); select(g.l4no); }
+  }
+  undoStack.push({before:prior,after:snapshot()}); state.renamingUnit=null; saveLaneSettings(); roleChanged();
+  if(!storageFailed) toast('Unit "'+oldU+'" → "'+newU+'": '+n+' aktivitas di '+l4n+' L4 ('+(mode==='asis'?'AS-IS':'TO-BE')+').'+(skipped.length?' Dilewati (ada rancangan TO-BE): '+skipped.join(', ')+'.':''),6000);
+}

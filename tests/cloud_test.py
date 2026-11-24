@@ -1,6 +1,6 @@
 import sys
 from playwright.sync_api import sync_playwright
-H='/home/claude/flowchart-bpa/dist/Flowchart_BPA_v1.9.0_BPMN.html'
+H='/home/claude/flowchart-bpa/dist/Flowchart_BPA_v1.9.1_BPMN.html'
 MOCK=open('/home/claude/flowchart-bpa/tests/sb_mock.js').read()
 WB='/home/claude/wb/pelni.xlsx'
 def page(b, port_ctx=None):
@@ -11,7 +11,7 @@ with sync_playwright() as p:
     b=p.chromium.launch()
     import http.server, threading, functools, os
     os.chdir('/home/claude/flowchart-bpa'); srv=http.server.ThreadingHTTPServer(('127.0.0.1',8765),functools.partial(http.server.SimpleHTTPRequestHandler,directory='/home/claude/flowchart-bpa')); threading.Thread(target=srv.serve_forever,daemon=True).start()
-    URL='http://127.0.0.1:8765/dist/Flowchart_BPA_v1.9.0_BPMN.html'
+    URL='http://127.0.0.1:8765/dist/Flowchart_BPA_v1.9.1_BPMN.html'
     ctx,pg,errs=page(b); pg.goto(URL); pg.wait_for_timeout(1500)
     print('button:', pg.inner_text('#btnCloud'))
     pg.click('#btnCloud'); pg.wait_for_timeout(500); print('panel1:', pg.inner_text('#cloudDlg h3'))
