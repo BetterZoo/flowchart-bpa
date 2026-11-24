@@ -1,11 +1,14 @@
 import re
 s = open('src/app.html', encoding='utf-8').read()
-app = open('src/app.js', encoding='utf-8').read()
+app = open('src/app.js', encoding='utf-8').read() + '\n' + open('src/cloud.js', encoding='utf-8').read()
+sblib = open('vendor/supabase-2.119.2.js', encoding='utf-8').read().replace('</script', '<\\/script')
 blocks = list(re.finditer(r'(<script[^>]*>)(.*?)(</script>)', s, re.S))
 b = blocks[4]
 assert b.group(2).lstrip().startswith('"use strict";')
 s = s[:b.start(2)] + app + s[b.end(2):]
-VER = 'v1.8.0'
+# v1.9.0: Supabase client library (UMD) right before the app script
+s = s[:b.start(1)] + '<script>/* @supabase/supabase-js 2.119.2 (MIT) */\n' + sblib + '\n</script>' + s[b.start(1):]
+VER = 'v1.9.0'
 s = re.sub(r'<title>.*?</title>', '<title>Flowchart BPA '+VER+' — Notasi BPMN 2.0</title>', s, count=1, flags=re.S)
 s = s.replace('Professional Workspace · v1.3.8', 'Professional Workspace · '+VER, 1)
 old = '<label class="status-in">Label status <input id="statusLabel" value="DRAFT — Konsultan"></label>'

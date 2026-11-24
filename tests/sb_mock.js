@@ -1,0 +1,35 @@
+// In-memory Supabase stand-in for tests (persists in localStorage '__mockdb' so page reloads keep data).
+(function(){
+  const load=()=>{try{return JSON.parse(localStorage.getItem('__mockdb'))||{members:[{email:'dea@better.co'}],projects:[],project_versions:[],seq:1};}catch(e){return {members:[],projects:[],project_versions:[],seq:1};}};
+  const save=db=>localStorage.setItem('__mockdb',JSON.stringify(db));
+  const user=()=>{const e=localStorage.getItem('__mockuser');return e?{email:e,id:'u-'+e}:null;};
+  function Q(table){ this.t=table; this.f=[]; this.op='select'; this.cols='*'; this.ret=false; this.one=false; this.ord=null; this.lim=null; }
+  Q.prototype.select=function(c){ if(this.op==='select') this.cols=c||'*'; else this.ret=true; return this; };
+  Q.prototype.eq=function(k,v){ this.f.push([k,v]); return this; };
+  Q.prototype.order=function(k,o){ this.ord=[k,o&&o.ascending===false?-1:1]; return this; };
+  Q.prototype.limit=function(n){ this.lim=n; return this; };
+  Q.prototype.single=function(){ this.one=true; return this; };
+  Q.prototype.insert=function(o){ this.op='insert'; this.val=o; return this; };
+  Q.prototype.update=function(o){ this.op='update'; this.val=o; return this; };
+  Q.prototype.run=function(){
+    const db=load(), u=user(); if(!u) return {data:null,error:{message:'not authenticated'}};
+    const member=db.members.some(m=>m.email===u.email); let rows=db[this.t];
+    if(this.t!=='members' && !member) return {data:this.op==='select'?[]:null,error:this.op==='select'?null:{message:'RLS'}};
+    if(this.t==='members') rows=rows.filter(m=>m.email===u.email);
+    const match=r=>this.f.every(([k,v])=>r[k]===v);
+    let out;
+    if(this.op==='insert'){ const r=Object.assign({},this.val); if(this.t==='projects'){ r.id='p'+(db.seq++); r.updated_at=new Date().toISOString(); } else r.id=db.seq++; if(!r.saved_at) r.saved_at=new Date().toISOString(); db[this.t].push(r); save(db); out=[r]; window.__mockWrites=(window.__mockWrites||0)+1; }
+    else if(this.op==='update'){ out=[]; for(const r of db[this.t]) if(match(r)){ Object.assign(r,this.val); out.push(r);} save(db); window.__mockWrites=(window.__mockWrites||0)+1; }
+    else { out=rows.filter(match); if(this.ord) out=out.slice().sort((a,b)=>(a[this.ord[0]]>b[this.ord[0]]?1:-1)*this.ord[1]); if(this.lim) out=out.slice(0,this.lim); }
+    out=JSON.parse(JSON.stringify(out));
+    if(this.one) return out.length?{data:out[0],error:null}:{data:null,error:{message:'no rows'}};
+    return {data:out,error:null};
+  };
+  Q.prototype.then=function(res,rej){ return Promise.resolve(this.run()).then(res,rej); };
+  window.__sbMock={createClient(){ return {
+    auth:{ async getSession(){ const u=user(); return {data:{session:u?{user:u}:null}}; },
+      async signInWithOtp({email}){ window.__otp=email; return {error:null}; },
+      async signOut(){ localStorage.removeItem('__mockuser'); return {error:null}; },
+      onAuthStateChange(){ return {data:{subscription:{unsubscribe(){}}}}; } },
+    from(t){ return new Q(t); } }; }};
+})();

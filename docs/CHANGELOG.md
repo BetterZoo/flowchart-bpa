@@ -1,5 +1,13 @@
 # Changelog Flowchart BPA
 
+## v1.9.0 — Simpan ke cloud (Supabase) (2026-11-24)
+- Tombol "☁ Cloud": login email tanpa password (magic link), hanya email yang terdaftar di tabel `members`.
+- Simpan pekerjaan di browser sebagai proyek cloud tim; buka proyek tim dari laptop mana pun.
+- Simpan otomatis (cek tiap 8 detik bila ada perubahan) atau manual; status simpan tampil di tombol.
+- Riwayat versi: saat dibuat, saat simpan manual, dan otomatis paling sering tiap 15 menit; 30 versi terakhir; bisa dipulihkan.
+- Pengaman: bila anggota lain menyimpan lebih dulu, simpan otomatis berhenti dan muncul pilihan "Muat versi terbaru" / "Timpa dengan versi saya".
+- Tanpa login aplikasi tetap jalan seperti biasa (tersimpan di browser).
+
 ## v1.8.0 — Panel gateway & gateway setelah gateway (2026-11-24)
 - Panel gateway: klik dua kali belah ketupat di canvas (mode AS-IS / TO-BE) → "Edit gateway": ubah pertanyaan, label & tujuan tiap cabang, tambah/hapus kondisi.
 - Gateway setelah gateway: tujuan cabang "◇ Gateway baru setelah cabang ini…" → pertanyaan + kondisi (min. 2). Bisa bertingkat.
