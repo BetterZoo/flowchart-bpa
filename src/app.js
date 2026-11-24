@@ -113,6 +113,7 @@ async function readWorkbook(buf){
     }
   }
   if(!candidates.length) throw new Error('Tidak ada sheet dengan kolom "No L5" dan "Proses Sesudah".');
+  { const real=candidates.filter(n=>!/^SOP TO-BE$/i.test(String(n).trim())); if(real.length) candidates.splice(0,candidates.length,...real); } // v1.9.4: the TO-BE sheet is a report, not the import source
   const chosen = candidates.length===1 ? candidates[0] : await chooseSopImportSheet(candidates);
   if(!chosen) throw new Error('Import dibatalkan: belum memilih sheet SOP.');
   for(const sn of [chosen]){
@@ -2027,7 +2028,21 @@ async function exportElabSheet(){
   if(!state.rows.length && !rows.length && !hasPos() && !hasExtra() && !hasRoleEdits() && !Object.keys(state.laneModes).length && !state.rows.some(r=>r._asisEdited)){ toast('Belum ada elaborasi, SLA/output, atau pemetaan untuk disimpan.'); return 'empty'; }
   await loadScript(LIBS.xlsx);
   const wb = XLSX.utils.book_new();
-  if(state.rows.length){ const keys=['l1no','l1','l2no','l2','l3no','l3','l4no','l4','l5no','l5','desc','prev','next','role','posX','unitX','decisionQuestion','decisionRole','inputX','outputX','docX','slaX','systemX']; const heads=['No L1','Level 1','No L2','Level 2','No L3','Level 3','No L4','Level 4','No L5','Level 5','Activity Description','Proses Sebelum','Proses Sesudah','Role','Jabatan','Unit','Pertanyaan Keputusan','Role Keputusan','Input','Output','Dokumen','SLA','Sistem/Aplikasi']; const legacy=Object.keys(COLS).filter(k=>!keys.includes(k));const all=[...keys,...legacy]; const ws=XLSX.utils.aoa_to_sheet([[...heads,...legacy.map(k=>COLS[k][0])],...state.rows.map(r=>all.map(k=>r[k]||''))]);ws['!cols']=all.map((k,i)=>({wch:i%2===0?18:35,hidden:i>=keys.length}));ws['!autofilter']={ref:'A1:W'+(state.rows.length+1)}; XLSX.utils.book_append_sheet(wb,ws,'SOP'); }
+  if(state.rows.length){ const keys=['l1no','l1','l2no','l2','l3no','l3','l4no','l4','l5no','l5','desc','prev','next','role','posX','unitX','decisionQuestion','decisionRole','inputX','outputX','docX','slaX','systemX']; const heads=['No L1','Level 1','No L2','Level 2','No L3','Level 3','No L4','Level 4','No L5','Level 5','Activity Description','Proses Sebelum','Proses Sesudah','Role','Jabatan','Unit','Pertanyaan Keputusan','Role Keputusan','Input','Output','Dokumen','SLA','Sistem/Aplikasi']; const legacy=Object.keys(COLS).filter(k=>!keys.includes(k));const all=[...keys,...legacy]; const ws=XLSX.utils.aoa_to_sheet([[...heads,...legacy.map(k=>COLS[k][0])],...state.rows.map(r=>all.map(k=>r[k]||''))]);ws['!cols']=all.map((k,i)=>({wch:i%2===0?18:35,hidden:i>=keys.length}));ws['!autofilter']={ref:'A1:W'+(state.rows.length+1)}; XLSX.utils.book_append_sheet(wb,ws,'SOP');
+    // v1.9.4: "SOP TO-BE" — same columns as SOP, current TO-BE per L4 (AS-IS where no TO-BE draft), plus a status column
+    try{ const T=[], cmpKeys=keys.filter(k=>!['l1','l2','l3','l4'].includes(k)), asisBy=new Map(state.rows.map(r=>[r.l5no,r]));
+      for(const g of [...state.l4s.values()].sort((x,y)=>cmpCode(x.l4no,y.l4no))){
+        const d=draftGraph(g)?materializeDraft(g):null, rows=d?d.rows:g.acts, seen=new Set();
+        for(const r of rows.slice().sort((x,y)=>cmpCode(x.l5no,y.l5no))){ seen.add(r.l5no); const o=asisBy.get(r.l5no);
+          const st=!d?'Tetap':!o?'Baru':cmpKeys.some(k=>String(r[k]||'').trim()!==String(o[k]||'').trim())?'Berubah':'Tetap';
+          T.push([...all.map(k=>r[k]||''), isGateRow(r)?st+' (gateway)':st]); }
+        if(d) for(const o of g.acts) if(!seen.has(o.l5no)) T.push([...all.map(k=>o[k]||''), 'Dihapus di TO-BE']);
+      }
+      const wt=XLSX.utils.aoa_to_sheet([[...heads,...legacy.map(k=>COLS[k][0]),'Status TO-BE'],...T]);
+      wt['!cols']=[...all.map((k,i)=>({wch:i%2===0?18:35,hidden:i>=keys.length})),{wch:18}];
+      const lastCol=XLSX.utils.encode_col(all.length); wt['!autofilter']={ref:'A1:'+lastCol+(T.length+1)};
+      XLSX.utils.book_append_sheet(wb,wt,'SOP TO-BE');
+    }catch(e){ console.warn('SOP TO-BE', e); } }
   if(rows.length){
     const ws = XLSX.utils.aoa_to_sheet([ELAB_HEAD, ...rows]);
     ws['!cols'] = [8,8,34,13,12,40,22,14,10,10,60,14,26].map(w=>({wch:w}));
@@ -2050,7 +2065,7 @@ async function exportElabSheet(){
   }
   if(Object.keys(state.laneModes).length) XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['No L4','Mode'],...Object.entries(state.laneModes)]),'Pengaturan Swimlane');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Kode L5'],...[...usedCodes].map(c=>[c])]),'Riwayat Kode');
-  appendAnalysisSheet(wb); appendRegisterSheet(wb); appendBpmnMetaSheet(wb); wb.Workbook=wb.Workbook||{};wb.Workbook.Sheets=wb.SheetNames.map(name=>({name,Hidden:['SOP','Analisis Proses','Daftar Perubahan','BPMN Metadata'].includes(name)?0:1}));
+  appendAnalysisSheet(wb); appendRegisterSheet(wb); appendBpmnMetaSheet(wb); wb.Workbook=wb.Workbook||{};wb.Workbook.Sheets=wb.SheetNames.map(name=>({name,Hidden:['SOP','SOP TO-BE','Analisis Proses','Daftar Perubahan','BPMN Metadata'].includes(name)?0:1}));
   const buf = XLSX.write(wb, {type:'array', bookType:'xlsx'});
   const base = state.fileName.replace(/\.[^.]+$/,'').replace(/^(?:BPA Master - )+/,'');
   const r = await saveFile('BPA Master - '+base+'.xlsx', new Blob([buf]));

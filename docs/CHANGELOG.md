@@ -1,5 +1,10 @@
 # Changelog Flowchart BPA
 
+## v1.9.4 — Sheet "SOP TO-BE" di Master Workbook (2026-11-24)
+- Export → Excel → Simpan Master Workbook sekarang berisi sheet "SOP TO-BE": kolom sama dengan sheet SOP, isi versi TO-BE terbaru per L4 (L4 tanpa rancangan TO-BE diisi AS-IS), plus kolom "Status TO-BE": Tetap / Berubah / Baru / Dihapus di TO-BE (gateway lanjutan ditandai "(gateway)").
+- Sheet SOP tetap AS-IS. Saat Master Workbook diimpor lagi, "SOP TO-BE" tidak dipakai sebagai sumber (rancangan TO-BE tetap dipulihkan dari Elaborasi Flowchart).
+- v1.9.3: panel Cloud menampilkan detail pengecekan anggota + tombol "Cek lagi"; docs/supabase_fix_members.sql.
+
 ## v1.9.2 — Satu titik Selesai (2026-11-24)
 - Semua jalur yang berakhir sekarang bertemu di satu titik Selesai di bagian bawah, di lane jalur terakhir yang selesai (sebelumnya satu Selesai per aktivitas/gateway).
 - Bisa dikembalikan ke cara lama: Pengaturan → hilangkan centang "Satu titik Selesai".
