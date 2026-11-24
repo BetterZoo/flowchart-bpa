@@ -2030,17 +2030,27 @@ async function exportElabSheet(){
   const wb = XLSX.utils.book_new();
   if(state.rows.length){ const keys=['l1no','l1','l2no','l2','l3no','l3','l4no','l4','l5no','l5','desc','prev','next','role','posX','unitX','decisionQuestion','decisionRole','inputX','outputX','docX','slaX','systemX']; const heads=['No L1','Level 1','No L2','Level 2','No L3','Level 3','No L4','Level 4','No L5','Level 5','Activity Description','Proses Sebelum','Proses Sesudah','Role','Jabatan','Unit','Pertanyaan Keputusan','Role Keputusan','Input','Output','Dokumen','SLA','Sistem/Aplikasi']; const legacy=Object.keys(COLS).filter(k=>!keys.includes(k));const all=[...keys,...legacy]; const ws=XLSX.utils.aoa_to_sheet([[...heads,...legacy.map(k=>COLS[k][0])],...state.rows.map(r=>all.map(k=>r[k]||''))]);ws['!cols']=all.map((k,i)=>({wch:i%2===0?18:35,hidden:i>=keys.length}));ws['!autofilter']={ref:'A1:W'+(state.rows.length+1)}; XLSX.utils.book_append_sheet(wb,ws,'SOP');
     // v1.9.4: "SOP TO-BE" — same columns as SOP, current TO-BE per L4 (AS-IS where no TO-BE draft), plus a status column
-    try{ const T=[], cmpKeys=keys.filter(k=>!['l1','l2','l3','l4'].includes(k)), asisBy=new Map(state.rows.map(r=>[r.l5no,r]));
+    try{ const cmpKeys=keys.filter(k=>!['l1','l2','l3','l4'].includes(k)), asisBy=new Map(state.rows.map(r=>[r.l5no,r]));
+      // v1.9.5: L4 with a TO-BE draft are renumbered in flow order (01, 02, …; gateways <code>-G1 after their activity);
+      // all references in the sheet (also from other L4) follow the new numbers. "No L5 lama" keeps the original code.
+      const recs=[], map=new Map();
       for(const g of [...state.l4s.values()].sort((x,y)=>cmpCode(x.l4no,y.l4no))){
         const d=draftGraph(g)?materializeDraft(g):null, rows=d?d.rows:g.acts, seen=new Set();
-        for(const r of rows.slice().sort((x,y)=>cmpCode(x.l5no,y.l5no))){ seen.add(r.l5no); const o=asisBy.get(r.l5no);
+        const ordered=d?flowOrder(rows.map(r=>({...r}))).map(x=>rows.find(r=>r.l5no===x.l5no)).filter(Boolean):rows.slice().sort((x,y)=>cmpCode(x.l5no,y.l5no));
+        for(const r of rows) if(!ordered.includes(r)) ordered.push(r);
+        let n=0, base=g.l4no+'.00', gi=0;
+        for(const r of ordered){ seen.add(r.l5no); const o=asisBy.get(r.l5no);
           const st=!d?'Tetap':!o?'Baru':cmpKeys.some(k=>String(r[k]||'').trim()!==String(o[k]||'').trim())?'Berubah':'Tetap';
-          T.push([...all.map(k=>r[k]||''), isGateRow(r)?st+' (gateway)':st]); }
-        if(d) for(const o of g.acts) if(!seen.has(o.l5no)) T.push([...all.map(k=>o[k]||''), 'Dihapus di TO-BE']);
+          if(d){ if(isGateRow(r)){ gi++; map.set(r.l5no, base+'-G'+gi); } else { n++; base=g.l4no+'.'+String(n).padStart(2,'0'); gi=0; map.set(r.l5no, base); } }
+          recs.push({r, st:isGateRow(r)?st+' (gateway)':st, old:r.l5no}); }
+        if(d) for(const o of g.acts) if(!seen.has(o.l5no)) recs.push({r:o, st:'Dihapus di TO-BE', old:o.l5no, gone:true});
       }
-      const wt=XLSX.utils.aoa_to_sheet([[...heads,...legacy.map(k=>COLS[k][0]),'Status TO-BE'],...T]);
-      wt['!cols']=[...all.map((k,i)=>({wch:i%2===0?18:35,hidden:i>=keys.length})),{wch:18}];
-      const lastCol=XLSX.utils.encode_col(all.length); wt['!autofilter']={ref:'A1:'+lastCol+(T.length+1)};
+      const remap=v=>String(v||'').replace(CODE_RE, m=>map.has(m)?map.get(m):m);
+      const T=recs.map(({r,st,old,gone})=>{ const row=all.map(k=>k==='l5no'?(gone?'':(map.get(old)||old)):(k==='prev'||k==='next'||k==='dataFrom')?(gone?'':remap(r[k])):(r[k]||''));
+        const nn=gone?'':(map.get(old)||old); return [...row, st, nn!==old?old:'']; });
+      const wt=XLSX.utils.aoa_to_sheet([[...heads,...legacy.map(k=>COLS[k][0]),'Status TO-BE','No L5 lama'],...T]);
+      wt['!cols']=[...all.map((k,i)=>({wch:i%2===0?18:35,hidden:i>=keys.length})),{wch:18},{wch:14}];
+      const lastCol=XLSX.utils.encode_col(all.length+1); wt['!autofilter']={ref:'A1:'+lastCol+(T.length+1)};
       XLSX.utils.book_append_sheet(wb,wt,'SOP TO-BE');
     }catch(e){ console.warn('SOP TO-BE', e); } }
   if(rows.length){

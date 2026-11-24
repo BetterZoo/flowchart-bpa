@@ -1,5 +1,11 @@
 # Changelog Flowchart BPA
 
+## v1.9.5 — Nomor runut di sheet "SOP TO-BE" (2026-11-24)
+- L4 yang punya rancangan TO-BE dinomori ulang mengikuti urutan alur (12.01.01, 12.01.02, … tanpa bolong); gateway lanjutan diberi kode <aktivitas sebelumnya>-G1.
+- Proses Sebelum/Sesudah di sheet ikut nomor baru, termasuk rujukan dari L4 lain.
+- Kolom baru "No L5 lama" berisi nomor asal bila berubah. Baris "Dihapus di TO-BE": No L5 kosong, nomor asal di "No L5 lama".
+- Data di aplikasi tidak diubah; penomoran ulang hanya di sheet hasil ekspor.
+
 ## v1.9.4 — Sheet "SOP TO-BE" di Master Workbook (2026-11-24)
 - Export → Excel → Simpan Master Workbook sekarang berisi sheet "SOP TO-BE": kolom sama dengan sheet SOP, isi versi TO-BE terbaru per L4 (L4 tanpa rancangan TO-BE diisi AS-IS), plus kolom "Status TO-BE": Tetap / Berubah / Baru / Dihapus di TO-BE (gateway lanjutan ditandai "(gateway)").
 - Sheet SOP tetap AS-IS. Saat Master Workbook diimpor lagi, "SOP TO-BE" tidak dipakai sebagai sumber (rancangan TO-BE tetap dipulihkan dari Elaborasi Flowchart).
