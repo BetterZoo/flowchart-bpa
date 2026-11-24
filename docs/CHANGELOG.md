@@ -1,5 +1,10 @@
 # Changelog Flowchart BPA
 
+## v1.9.6 — Impor "SOP TO-BE" sebagai data utama (2026-11-24)
+- Saat membuka Master Workbook yang punya sheet SOP dan SOP TO-BE, aplikasi menanyakan sumbernya:
+  - "SOP — AS-IS + rancangan TO-BE seperti terakhir disimpan" (perilaku lama), atau
+  - "SOP TO-BE — jadikan TO-BE sebagai data utama (AS-IS baru)": nomor runut dari sheet dipakai, baris "Dihapus di TO-BE" diabaikan, rancangan TO-BE lama tidak dimuat lagi (sudah jadi AS-IS), SLA/input-output dan jenis gateway ikut pindah ke nomor baru lewat kolom "No L5 lama".
+
 ## v1.9.5 — Nomor runut di sheet "SOP TO-BE" (2026-11-24)
 - L4 yang punya rancangan TO-BE dinomori ulang mengikuti urutan alur (12.01.01, 12.01.02, … tanpa bolong); gateway lanjutan diberi kode <aktivitas sebelumnya>-G1.
 - Proses Sebelum/Sesudah di sheet ikut nomor baru, termasuk rujukan dari L4 lain.

@@ -80,6 +80,17 @@ function validateBpmnMetaAgainstRows(data,rows){
   }
  }
 }
+/* v1.9.6: importing "SOP TO-BE" makes TO-BE the new base: remap codes in side data, drop the old TO-BE drafts */
+function tobeRemap(code, m){ return m[code] || code; }
+function tobeBaseBpmn(b, m, rows){ if(!b) return null; const have=new Set(rows.map(r=>r.l5no)), out={}, tobeL4=new Set(Object.keys(b).filter(k=>k.endsWith('|tobe')).map(k=>k.split('|')[0]));
+  for(const [scope,items] of Object.entries(b)){ const [l4,mode]=scope.split('|'); if(mode==='asis'&&tobeL4.has(l4)) continue;
+    for(const [code,type] of Object.entries(items)){ const c=mode==='tobe'?tobeRemap(code,m):code; if(!have.has(c)) continue; (out[l4+'|asis'] ||= {})[c]=type; } }
+  return out; }
+function tobeBaseSide(res){
+  const m=res.oldMap||{}, STRUCTURAL=new Set(['graph',...(typeof STRUCT!=='undefined'?STRUCT:[])]);
+  if(res.elab){ for(const k of Object.keys(res.elab)){ res.elab[k]=(res.elab[k]||[]).filter(i=>!STRUCTURAL.has(i.type)).map(i=>({...i, after:tobeRemap(i.after,m)})); } }
+  if(res.extra){ const x={}; for(const [k,v] of Object.entries(res.extra)) x[tobeRemap(k,m)]=v; res.extra=x; }
+}
 function chooseSopImportSheet(names){
   return new Promise(resolve=>{
     const overlay=document.createElement('div');
@@ -89,7 +100,7 @@ function chooseSopImportSheet(names){
     const h=document.createElement('h2');h.textContent='Pilih sheet SOP untuk diimport';h.style.cssText='font-size:19px;margin:0 0 12px';
     const note=document.createElement('p');note.textContent='Workbook memiliki beberapa sheet proses yang valid. Pilih satu sebagai sumber aktivitas; sheet pendukung tetap dibaca sesuai kebutuhan.';note.style.cssText='line-height:1.5;margin:0 0 16px';
     const sel=document.createElement('select');sel.setAttribute('aria-label','Sheet SOP');sel.style.cssText='width:100%;padding:10px;border:1px solid #b6bfca;border-radius:7px;font-size:14px';
-    for(const name of names){const opt=document.createElement('option');opt.value=name;opt.textContent=name;sel.appendChild(opt);}
+    for(const name of names){const opt=document.createElement('option');opt.value=name;opt.textContent=/^SOP TO-BE$/i.test(name)?'SOP TO-BE — jadikan TO-BE sebagai data utama (AS-IS baru)':/^SOP$/i.test(name)&&names.some(n=>/^SOP TO-BE$/i.test(n))?'SOP — AS-IS + rancangan TO-BE seperti terakhir disimpan':name;sel.appendChild(opt);}
     const official=names.find(n=>n.trim().toLowerCase()==='sop');if(official)sel.value=official;
     const buttons=document.createElement('div');buttons.style.cssText='display:flex;justify-content:flex-end;gap:10px;margin-top:20px';
     const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Batal';cancel.style.cssText='padding:9px 16px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer';
@@ -113,7 +124,7 @@ async function readWorkbook(buf){
     }
   }
   if(!candidates.length) throw new Error('Tidak ada sheet dengan kolom "No L5" dan "Proses Sesudah".');
-  { const real=candidates.filter(n=>!/^SOP TO-BE$/i.test(String(n).trim())); if(real.length) candidates.splice(0,candidates.length,...real); } // v1.9.4: the TO-BE sheet is a report, not the import source
+  // v1.9.6: "SOP TO-BE" can be chosen to make the TO-BE the new base data (AS-IS baru)
   const chosen = candidates.length===1 ? candidates[0] : await chooseSopImportSheet(candidates);
   if(!chosen) throw new Error('Import dibatalkan: belum memilih sheet SOP.');
   for(const sn of [chosen]){
@@ -135,15 +146,17 @@ async function readWorkbook(buf){
             state._repairedShift=true;
           }
         }
-        const rows = [];
+        const rows = [], isTobe=/^SOP TO-BE$/i.test(String(sn).trim()), jOld=hdr.indexOf('no l5 lama'), jSt=hdr.indexOf('status to-be'), oldMap={};
         for(let r=i+1;r<aoa.length;r++){
           const row = aoa[r]; const o = {};
           for(const k of Object.keys(COLS)) o[k] = col[k]==null ? '' : String(row[col[k]]==null?'':row[col[k]]).trim();
           if(!o.l5no) continue;
+          if(isTobe && jSt>=0 && /^dihapus/i.test(String(aoa[r][jSt]||'').trim())) continue;
+          if(isTobe && jOld>=0 && String(aoa[r][jOld]||'').trim()) oldMap[String(aoa[r][jOld]).trim()]=o.l5no;
           if(!o.outX) o.outX=[o.outputX,o.docX].map(v=>String(v||'').trim()).filter(v=>v&&v.toUpperCase()!=='X').join(' / '); /* v1.6.1: "X" is a marker, not a name */ rows.push(o);
         }
         if(!rows.length) throw new Error('Sheet "'+sn+'" tidak berisi aktivitas.');
-        if(new Set(rows.map(r=>r.l5no)).size!==rows.length) throw Error('Kode L5 harus unik dalam workbook.'); if(new Set(rows.map(r=>r.l4no+'|'+r.l1no+'|'+r.l2no+'|'+r.l3no)).size!==new Set(rows.map(r=>r.l4no)).size) throw Error('Kode L4 harus unik lintas hierarki.'); const bpmn=parseBpmnMetaSheet(wb);validateBpmnMetaAgainstRows(bpmn,rows);return {sheet:sn, rows, bpmn, used:readUsedCodes(wb), elab: parseElabSheet(wb), pos: parsePosSheets(wb), extra: parseExtraSheet(wb), roles: parseRoleSheet(wb), analysis:readAnalysisSheet(wb), register:readRegisterSheet(wb), master:wb.SheetNames.includes('Riwayat Kode')&&wb.SheetNames.includes('SOP')};
+        if(new Set(rows.map(r=>r.l5no)).size!==rows.length) throw Error('Kode L5 harus unik dalam workbook.'); if(new Set(rows.map(r=>r.l4no+'|'+r.l1no+'|'+r.l2no+'|'+r.l3no)).size!==new Set(rows.map(r=>r.l4no)).size) throw Error('Kode L4 harus unik lintas hierarki.'); let bpmn=parseBpmnMetaSheet(wb); if(isTobe) bpmn=tobeBaseBpmn(bpmn, oldMap, rows); validateBpmnMetaAgainstRows(bpmn,rows);return {sheet:sn, tobeBase:isTobe, oldMap, rows, bpmn, used:readUsedCodes(wb), elab: parseElabSheet(wb), pos: parsePosSheets(wb), extra: parseExtraSheet(wb), roles: parseRoleSheet(wb), analysis:readAnalysisSheet(wb), register:readRegisterSheet(wb), master:wb.SheetNames.includes('Riwayat Kode')&&wb.SheetNames.includes('SOP')};
       }
     }
   }
@@ -2810,6 +2823,7 @@ async function handleFile(file){ state._repairedShift=false;
       if(ans==='cancel'){ toast('Upload dibatalkan.'); return; }
       if(ans==='new'&&!resetProject()) return;
     }
+    if(res.tobeBase) tobeBaseSide(res);
     undoStack=[]; (res.used||[]).forEach(c=>usedCodes.add(c)); const {rows, elab, pos, extra, roles, analysis, register} = res; mergeRegister(register); if(analysis) {for(const r of analysis)r.activityName=rows.find(a=>a.l5no===r.activity&&a.l4no===r.l4)?.l5||r.activityName; mergeAnalysis(analysis);} let ne = 0, np = 0; if(elab) ne = mergeElab(elab); if(pos) np = applyPos(pos); if(extra) mergeExtra(extra); if(roles) mergeRoles(roles);
     if(!pos && rows.some(r=>r.posX||r.unitX)){state.posOn=false;savePos();} ingest(rows, file.name); if(res.bpmn!==null)bpmnSemanticImport(res.bpmn); toast(state.l4s.size+' subproses berhasil dibaca.'+(state._repairedShift?' Kolom Master Workbook versi lama (v1.5.0 ke bawah) diperbaiki otomatis.':'')+(ne?' '+ne+' elemen elaborasi ikut terbaca.':'')+(np?' Pemetaan jabatan ikut terbaca.':''), 4000); }
   catch(e){ console.error(e); $('loadErr').textContent = 'Gagal membaca file: '+(e.message||e); toast('Gagal membaca file.'); }
