@@ -6,7 +6,7 @@
 const CLOUD = { url:'https://mwntajmqujwlygnutwjy.supabase.co', key:'sb_publishable_gp5m8aejRNsyHSN0PYocGg_p10NvmvA' };
 const CLOUD_PROJ_KEY = 'flowbpa:cloudProject', CLOUD_AUTO_KEY = 'flowbpa:cloudAuto';
 const CLOUD_HISTORY_EVERY = 15*60*1000; // automatic saves keep a history version at most every 15 minutes
-let sbc = null, cloudUser = null, cloudMember = false, cloudProj = null, cloudHash = '', cloudBusy = false, cloudLastHist = 0, cloudState = '';
+let sbc = null, cloudUser = null, cloudMember = false, cloudMemberErr = '', cloudProj = null, cloudHash = '', cloudBusy = false, cloudLastHist = 0, cloudState = '';
 function cloudLib(){ return window.__sbMock || window.supabase || null; }
 function cloudClient(){
   if(sbc) return sbc; const L = cloudLib(); if(!L || !L.createClient) return null;
@@ -28,8 +28,8 @@ function cloudSetState(txt, kind){
 async function cloudRefreshUser(){
   const c = cloudClient(); if(!c){ cloudUser = null; return; }
   try{ const { data } = await c.auth.getSession(); cloudUser = data && data.session ? data.session.user : null; }catch(e){ cloudUser = null; }
-  cloudMember = false;
-  if(cloudUser){ try{ const { data, error } = await c.from('members').select('email').limit(1); cloudMember = !error && !!(data && data.length); }catch(e){} }
+  cloudMember = false; cloudMemberErr = '';
+  if(cloudUser){ try{ const { data, error } = await c.from('members').select('email').limit(1); cloudMember = !error && !!(data && data.length); cloudMemberErr = error ? (error.message||String(error.code||'')) : (data && data.length ? '' : 'tidak ada baris yang cocok'); }catch(e){ cloudMemberErr = e.message||String(e); } }
 }
 function cloudWriteLocal(snap){
   for(const k of cloudKeys()) try{ localStorage.removeItem(k); }catch(e){}
@@ -107,6 +107,7 @@ async function cloudPanel(){
   }
   if(!cloudMember){
     cloudShow('<h3>Belum terdaftar</h3>'+P('Lw masuk sebagai <b>'+esc(cloudUser.email)+'</b>, tetapi email ini belum terdaftar sebagai anggota tim. Minta admin menambahkan email ini ke tabel <code>members</code> di Supabase, lalu buka panel ini lagi.')+
+      '<p style="font-size:12px;color:#64748b">Detail pengecekan: '+esc(cloudMemberErr||'-')+'</p><div class="row" style="justify-content:flex-start"><button class="btn" data-c="recheck">Cek lagi</button></div>'+
       '<div class="row"><button class="btn" data-c="logout">Keluar</button><button class="btn primary" data-c="close">Tutup</button></div>'); return;
   }
   const { data:list, error } = await c.from('projects').select('id,name,version,updated_at,updated_by,file_name').order('updated_at', {ascending:false});
@@ -165,7 +166,7 @@ async function cloudClick(e){
   if(a==='rename'){ const nm = (window.prompt ? prompt('Nama baru proyek:', b.dataset.name) : null); if(!nm || !nm.trim()) return; const { error } = await c.from('projects').update({name:nm.trim()}).eq('id', b.dataset.id); if(error) toast('Gagal ganti nama: '+error.message); else { if(cloudProj && cloudProj.id===b.dataset.id){ cloudProj.name = nm.trim(); store.set(CLOUD_PROJ_KEY, JSON.stringify(cloudProj)); cloudSetState(cloudState); } cloudPanel(); } return; }
   if(a==='detach'){ cloudDetach(); return; }
   if(a==='history'){ cloudHistory(); return; }
-  if(a==='back'){ cloudPanel(); return; }
+  if(a==='back'||a==='recheck'){ cloudPanel(); return; }
   if(a==='restore'){ cloudRestore(b.dataset.id); return; }
   if(a==='reload'){ m.classList.add('hidden'); cloudOpen(cloudProj.id); return; }
   if(a==='overwrite'){ m.classList.add('hidden'); cloudOverwrite(); return; }
