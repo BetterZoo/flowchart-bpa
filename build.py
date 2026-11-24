@@ -16,3 +16,6 @@ out = 'dist/Flowchart_BPA_'+VER+'_BPMN.html'
 import os; os.makedirs('dist', exist_ok=True)
 open(out, 'w', encoding='utf-8').write(s)
 print(out, len(s))
+
+# GitHub Pages: the latest build is also served as index.html
+import shutil; shutil.copyfile(out, 'index.html'); print('index.html updated')

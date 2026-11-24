@@ -14,3 +14,6 @@ Aplikasi internal (satu file HTML, tanpa server) untuk membaca workbook BPA (Exc
 ```
 python3 build.py
 ```
+
+## Akses lewat link (GitHub Pages)
+Versi terbaru selalu disalin ke `index.html` di root repo oleh `build.py`, jadi bisa disajikan GitHub Pages (Settings → Pages → Deploy from a branch → `main` / root). Aplikasi berjalan sepenuhnya di browser: workbook Excel yang dibuka tidak di-upload ke mana pun.
