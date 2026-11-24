@@ -1,5 +1,11 @@
 # Changelog Flowchart BPA
 
+## v1.9.2 — Satu titik Selesai (2026-11-24)
+- Semua jalur yang berakhir sekarang bertemu di satu titik Selesai di bagian bawah, di lane jalur terakhir yang selesai (sebelumnya satu Selesai per aktivitas/gateway).
+- Bisa dikembalikan ke cara lama: Pengaturan → hilangkan centang "Satu titik Selesai".
+- Klik titik Selesai bersama → pilih jalur mana yang mau diubah ("Selesai setelah"); label Selesai berlaku untuk semua jalur.
+- Serah terima ke L4 lain ("Ke 12.03.01") tetap berupa titik akhir terpisah.
+
 ## v1.9.1 — Edit Mulai/Selesai & ganti nama unit (2026-11-24)
 - Klik lingkaran Mulai, Selesai, "Dari L4 lain", atau "Ke L4 lain" di canvas → panel Detail Simbol:
   - Mulai: ubah label, hapus, atau pindahkan ke aktivitas lain; opsi "sambungkan dari" bila aktivitasnya jadi tanpa pendahulu.

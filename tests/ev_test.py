@@ -1,5 +1,5 @@
 from playwright.sync_api import sync_playwright
-URL='file:///home/claude/out/Flowchart_BPA_v1.9.1_BPMN.html'
+URL='file:///home/claude/out/Flowchart_BPA_v1.9.2_BPMN.html'
 CHECK=open('/home/claude/check2.py').read().split('JS = r"""')[1].split('"""')[0]
 ROWS="(l4)=>structuralRows(state.l4s.get(l4),$('processEditMode').value).map(r=>r.l5no+' | '+r.prev+' -> '+r.next)"
 with sync_playwright() as p:
