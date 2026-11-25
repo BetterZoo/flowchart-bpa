@@ -152,6 +152,12 @@ async function cloudHistory(){
   const c = cloudClient(); if(!cloudProj) return;
   const { data, error } = await c.from('project_versions').select('id,version,note,saved_by,saved_at').eq('project_id', cloudProj.id).order('id', {ascending:false}).limit(30);
   let h = '<h3>Riwayat versi · '+esc(cloudProj.name)+'</h3><p style="font-size:13px;color:#334155">Disimpan saat Simpan manual, saat proyek dibuat, dan otomatis paling sering tiap 15 menit. 30 versi terakhir dipertahankan.</p>';
+  // v1.9.9: the project's current state, which often has no snapshot of its own (saved <15 min after the last one)
+  try{
+    const cur = await c.from('projects').select('version,updated_by,updated_at').eq('id', cloudProj.id).single();
+    if(cur.data && !(data||[]).some(v=>v.version===cur.data.version))
+      h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid var(--line,#e5e7eb);padding:8px 0;background:#f0fdf4"><div style="padding-left:6px"><div style="font-weight:600">Versi '+cur.data.version+' · saat ini · '+esc(cloudTime(cur.data.updated_at))+'</div><div style="font-size:12px;color:#64748b">'+esc(cloudUserName(cur.data.updated_by))+' · Isi proyek sekarang (belum ada snapshot terpisah)</div></div></div>';
+  }catch(e){}
   if(error) h += '<p>Gagal memuat: '+esc(error.message)+'</p>';
   else h += (data||[]).map(v=>'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid var(--line,#e5e7eb);padding:8px 0"><div><div style="font-weight:600">Versi '+v.version+' · '+esc(cloudTime(v.saved_at))+'</div><div style="font-size:12px;color:#64748b">'+esc(cloudUserName(v.saved_by))+' · '+esc(v.note||'')+'</div></div><button class="btn" data-c="restore" data-id="'+v.id+'">Pulihkan</button></div>').join('') || '<p>Belum ada riwayat.</p>';
   // v1.9.8: every save (who, when, which parts) from public.project_saves, filled by a database trigger.

@@ -1,5 +1,8 @@
 # Changelog Flowchart BPA
 
+## v1.9.9 — Versi saat ini di Riwayat (2026-11-25)
+- Riwayat versi menampilkan baris "Versi N · saat ini" di paling atas bila isi proyek sekarang belum punya snapshot sendiri (mis. disimpan kurang dari 15 menit setelah snapshot terakhir).
+
 ## v1.9.8 — Log simpan di Riwayat (2026-11-25)
 - Riwayat versi kini juga menampilkan **Log simpan**: setiap simpan (otomatis/manual) dengan versi, waktu, siapa, dan bagian yang berubah (mis. Rancangan TO-BE, Mode swimlane). Sebelumnya hanya snapshot tiap ±15 menit yang terlihat, sehingga simpanan di antaranya tampak tidak tercatat dan snapshot berikutnya tercatat atas nama orang yang kebetulan menyimpan.
 - Database: bila penyunting berganti, versi terakhir penyunting sebelumnya otomatis disimpan ke Riwayat (bisa dipulihkan).
