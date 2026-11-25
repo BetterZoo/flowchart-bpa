@@ -1,5 +1,11 @@
 # Changelog Flowchart BPA
 
+## v1.9.7 — Login username + password, pengaman simpan cloud (2026-11-25)
+- Login cloud memakai username + password (tidak lagi link via email, jadi tidak kena batas kirim email Supabase). Username `dea` = akun `dea@flowbpa.local` di Supabase; mengetik alamat email lengkap juga bisa.
+- Panel Cloud: tautan "Ganti password" (minimal 8 karakter).
+- Akun dibuat admin, lihat docs/supabase_users.md.
+- Simpan otomatis tidak lagi menimpa proyek cloud bila data di browser kosong atau tinggal kurang dari separuh baris (tombol menampilkan "tidak disimpan — cek data"); Simpan manual meminta konfirmasi dulu.
+
 ## v1.9.6 — Impor "SOP TO-BE" sebagai data utama (2026-11-24)
 - Saat membuka Master Workbook yang punya sheet SOP dan SOP TO-BE, aplikasi menanyakan sumbernya:
   - "SOP — AS-IS + rancangan TO-BE seperti terakhir disimpan" (perilaku lama), atau

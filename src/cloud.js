@@ -6,8 +6,13 @@
 const CLOUD = { url:'https://mwntajmqujwlygnutwjy.supabase.co', key:'sb_publishable_gp5m8aejRNsyHSN0PYocGg_p10NvmvA' };
 const CLOUD_PROJ_KEY = 'flowbpa:cloudProject', CLOUD_AUTO_KEY = 'flowbpa:cloudAuto';
 const CLOUD_HISTORY_EVERY = 15*60*1000; // automatic saves keep a history version at most every 15 minutes
-let sbc = null, cloudUser = null, cloudMember = false, cloudMemberErr = '', cloudProj = null, cloudHash = '', cloudBusy = false, cloudLastHist = 0, cloudState = '';
+const CLOUD_USER_DOMAIN = 'flowbpa.local'; // v1.9.7: username "dea" signs in as dea@flowbpa.local (no email is ever sent)
+let sbc = null, cloudUser = null, cloudMember = false, cloudMemberErr = '', cloudProj = null, cloudHash = '', cloudBusy = false, cloudLastHist = 0, cloudState = '', cloudRows = 0;
 function cloudLib(){ return window.__sbMock || window.supabase || null; }
+function cloudLoginEmail(u){ u = String(u||'').trim().toLowerCase(); return u.includes('@') ? u : u + '@' + CLOUD_USER_DOMAIN; }
+function cloudUserName(email){ email = String(email||''); return email.endsWith('@'+CLOUD_USER_DOMAIN) ? email.slice(0, -CLOUD_USER_DOMAIN.length-1) : email; }
+// v1.9.7: number of activity rows in a snapshot; used to refuse saving an empty/shrunken browser state over the cloud copy
+function cloudRowCount(snap){ try{ const d = JSON.parse((snap||{})['flowbpa:data']||'null'); return d && Array.isArray(d.rows) ? d.rows.length : 0; }catch(e){ return 0; } }
 function cloudClient(){
   if(sbc) return sbc; const L = cloudLib(); if(!L || !L.createClient) return null;
   try{ sbc = L.createClient(CLOUD.url, CLOUD.key, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, flowType:'pkce', storageKey:'flowbpa-auth'}}); }catch(e){ sbc = null; }
@@ -41,7 +46,7 @@ async function cloudOpen(id, versionRow){
   const { data, error } = await c.from('projects').select('id,name,version,data').eq('id', id).single();
   if(error || !data){ toast('Gagal membuka proyek: '+((error&&error.message)||'tidak ditemukan'), 7000); return; }
   cloudWriteLocal(versionRow ? versionRow.data : data.data);
-  store.set(CLOUD_PROJ_KEY, JSON.stringify({id:data.id, name:data.name, version:data.version, restored:!!versionRow}));
+  store.set(CLOUD_PROJ_KEY, JSON.stringify({id:data.id, name:data.name, version:data.version, restored:!!versionRow, rows:cloudRowCount(versionRow ? versionRow.data : data.data)}));
   window.__cloudLeaving = true; location.reload();
 }
 function cloudDirty(){ return !!cloudProj && cloudHashOf(cloudSnapshot()) !== cloudHash; }
@@ -49,14 +54,21 @@ async function cloudSave(manual, note){
   const c = cloudClient(); if(!c || !cloudProj || !cloudUser || cloudBusy) return false;
   const snap = cloudSnapshot(), h = cloudHashOf(snap);
   if(!manual && h === cloudHash) return true;
+  // v1.9.7: never overwrite the cloud copy with an empty or much smaller project by accident
+  const n = cloudRowCount(snap);
+  if(n === 0 || (cloudRows > 0 && n < cloudRows * 0.5)){
+    const msg = n === 0 ? 'Data di browser ini kosong' : 'Data di browser ini jauh lebih sedikit ('+n+' baris, di cloud '+cloudRows+' baris)';
+    if(!manual){ cloudSetState('tidak disimpan — cek data', 'warn'); return false; }
+    if(!confirm(msg+'. Tetap simpan dan TIMPA proyek cloud "'+cloudProj.name+'"?\n\nPilih Batal lalu "Lepas dari cloud" jika lw sedang memulai proyek lain.')) return false;
+  }
   cloudBusy = true; cloudSetState('menyimpan…');
   try{
     const now = new Date().toISOString();
     const { data, error } = await c.from('projects').update({data:snap, version:cloudProj.version+1, updated_by:cloudUser.email, updated_at:now, file_name:state.fileName||null}).eq('id', cloudProj.id).eq('version', cloudProj.version).select('version');
     if(error){ cloudSetState('gagal simpan', 'err'); toast('Gagal simpan ke cloud: '+error.message, 8000); return false; }
     if(!data || !data.length){ cloudSetState('ada versi lebih baru', 'warn'); cloudConflict(); return false; }
-    cloudProj.version = data[0].version; cloudHash = h;
-    store.set(CLOUD_PROJ_KEY, JSON.stringify({id:cloudProj.id, name:cloudProj.name, version:cloudProj.version}));
+    cloudProj.version = data[0].version; cloudHash = h; cloudRows = n;
+    store.set(CLOUD_PROJ_KEY, JSON.stringify({id:cloudProj.id, name:cloudProj.name, version:cloudProj.version, rows:cloudRows}));
     if(manual || Date.now() - cloudLastHist > CLOUD_HISTORY_EVERY){
       cloudLastHist = Date.now();
       await c.from('project_versions').insert({project_id:cloudProj.id, version:cloudProj.version, data:snap, note:note||(manual?'Simpan manual':'Simpan otomatis'), saved_by:cloudUser.email});
@@ -81,16 +93,16 @@ async function cloudNew(name){
   const snap = cloudSnapshot();
   const { data, error } = await c.from('projects').insert({name, data:snap, version:1, file_name:state.fileName||null, created_by:cloudUser.email, updated_by:cloudUser.email}).select('id,name,version').single();
   if(error){ toast('Gagal membuat proyek cloud: '+error.message, 8000); return; }
-  cloudProj = {id:data.id, name:data.name, version:data.version}; cloudHash = cloudHashOf(snap); cloudLastHist = Date.now();
+  cloudProj = {id:data.id, name:data.name, version:data.version}; cloudHash = cloudHashOf(snap); cloudRows = cloudRowCount(snap); cloudLastHist = Date.now();
   store.set(CLOUD_PROJ_KEY, JSON.stringify(cloudProj));
   await c.from('project_versions').insert({project_id:cloudProj.id, version:1, data:snap, note:'Proyek dibuat', saved_by:cloudUser.email});
   cloudSetState('tersimpan'); toast('Proyek "'+name+'" tersimpan di cloud. Perubahan berikutnya tersimpan otomatis.', 5000); cloudPanel();
 }
-function cloudDetach(){ if(cloudDirty() && !confirm('Ada perubahan yang belum tersimpan ke cloud. Tetap lepaskan?')) return; cloudProj = null; cloudHash = ''; try{ localStorage.removeItem(CLOUD_PROJ_KEY); }catch(e){} cloudSetState(''); cloudPanel(); toast('Proyek dilepas dari cloud. Data tetap ada di browser ini.'); }
+function cloudDetach(){ if(cloudDirty() && !confirm('Ada perubahan yang belum tersimpan ke cloud. Tetap lepaskan?')) return; cloudProj = null; cloudHash = ''; cloudRows = 0; try{ localStorage.removeItem(CLOUD_PROJ_KEY); }catch(e){} cloudSetState(''); cloudPanel(); toast('Proyek dilepas dari cloud. Data tetap ada di browser ini.'); }
 function cloudShow(html){
   let m = $('cloudDlg');
   if(!m){ m = document.createElement('div'); m.className = 'modal hidden'; m.id = 'cloudDlg'; m.setAttribute('role','dialog'); m.innerHTML = '<div class="dlg" style="max-width:640px;width:min(640px,94vw);max-height:86vh;overflow:auto"></div>'; document.body.appendChild(m);
-    m.addEventListener('click', cloudClick); m.addEventListener('keydown', e=>{ if(e.key==='Escape') m.classList.add('hidden'); if(e.key==='Enter' && e.target.id==='cloudEmail'){ e.preventDefault(); cloudClick({target:m.querySelector('[data-c=login]')}); } if(e.key==='Enter' && e.target.id==='cloudNewName'){ e.preventDefault(); cloudClick({target:m.querySelector('[data-c=new]')}); } }); }
+    m.addEventListener('click', cloudClick); m.addEventListener('keydown', e=>{ if(e.key==='Escape') m.classList.add('hidden'); if(e.key==='Enter' && (e.target.id==='cloudUser' || e.target.id==='cloudPass')){ e.preventDefault(); cloudClick({target:m.querySelector('[data-c=login]')}); } if(e.key==='Enter' && e.target.id==='cloudNewName'){ e.preventDefault(); cloudClick({target:m.querySelector('[data-c=new]')}); } }); }
   m.querySelector('.dlg').innerHTML = html; m.classList.remove('hidden');
 }
 async function cloudPanel(){
@@ -100,18 +112,20 @@ async function cloudPanel(){
   cloudShow('<h3>Simpan ke cloud</h3>'+P('Memuat…'));
   await cloudRefreshUser();
   if(!cloudUser){
-    cloudShow('<h3>Masuk ke cloud tim</h3>'+P('Masukkan email kantor. Link login dikirim ke email itu (tanpa password). Buka link dari browser ini.')+
-      '<label for="cloudEmail" style="font-size:13px">Email</label><input id="cloudEmail" type="email" autocomplete="email" style="width:100%;font-size:16px;padding:8px;margin:4px 0 10px" placeholder="nama@kantor.co.id">'+
-      '<div id="cloudMsg" style="font-size:13px"></div><div class="row"><button class="btn" data-c="close">Tutup</button><button class="btn primary" data-c="login">Kirim link login</button></div>');
-    setTimeout(()=>$('cloudEmail')&&$('cloudEmail').focus(), 0); return;
+    const inp = 'style="width:100%;font-size:16px;padding:8px;margin:4px 0 10px;box-sizing:border-box"';
+    cloudShow('<h3>Masuk ke cloud tim</h3>'+P('Masuk dengan username dan password dari admin.')+
+      '<label for="cloudUser" style="font-size:13px">Username</label><input id="cloudUser" autocomplete="username" autocapitalize="none" spellcheck="false" '+inp+' placeholder="mis. dea">'+
+      '<label for="cloudPass" style="font-size:13px">Password</label><input id="cloudPass" type="password" autocomplete="current-password" '+inp+'>'+
+      '<div id="cloudMsg" style="font-size:13px"></div><div class="row"><button class="btn" data-c="close">Tutup</button><button class="btn primary" data-c="login">Masuk</button></div>');
+    setTimeout(()=>$('cloudUser')&&$('cloudUser').focus(), 0); return;
   }
   if(!cloudMember){
-    cloudShow('<h3>Belum terdaftar</h3>'+P('Lw masuk sebagai <b>'+esc(cloudUser.email)+'</b>, tetapi email ini belum terdaftar sebagai anggota tim. Minta admin menambahkan email ini ke tabel <code>members</code> di Supabase, lalu buka panel ini lagi.')+
+    cloudShow('<h3>Belum terdaftar</h3>'+P('Lw masuk sebagai <b>'+esc(cloudUserName(cloudUser.email))+'</b>, tetapi akun ini belum terdaftar sebagai anggota tim. Minta admin menambahkan <code>'+esc(cloudUser.email)+'</code> ke tabel <code>members</code> di Supabase, lalu buka panel ini lagi.')+
       '<p style="font-size:12px;color:#64748b">Detail pengecekan: '+esc(cloudMemberErr||'-')+'</p><div class="row" style="justify-content:flex-start"><button class="btn" data-c="recheck">Cek lagi</button></div>'+
       '<div class="row"><button class="btn" data-c="logout">Keluar</button><button class="btn primary" data-c="close">Tutup</button></div>'); return;
   }
   const { data:list, error } = await c.from('projects').select('id,name,version,updated_at,updated_by,file_name').order('updated_at', {ascending:false});
-  let h = '<h3>Simpan ke cloud</h3>'+P('Masuk sebagai <b>'+esc(cloudUser.email)+'</b> · <a href="#" data-c="logout">Keluar</a>');
+  let h = '<h3>Simpan ke cloud</h3>'+P('Masuk sebagai <b>'+esc(cloudUserName(cloudUser.email))+'</b> · <a href="#" data-c="passwd">Ganti password</a> · <a href="#" data-c="logout">Keluar</a>');
   if(cloudProj){
     h += '<div style="border:1px solid var(--line,#d6dbe3);border-radius:8px;padding:10px 12px;margin:8px 0"><div style="font-size:12px;color:#64748b">Proyek aktif</div><div style="font-size:16px;font-weight:600">'+esc(cloudProj.name)+'</div>'+
       '<div style="font-size:12.5px;color:#334155;margin:4px 0 8px">'+(cloudDirty()?'Ada perubahan yang belum tersimpan.':'Semua perubahan sudah tersimpan.')+' Versi '+cloudProj.version+'.</div>'+
@@ -153,11 +167,30 @@ async function cloudClick(e){
   const a = b.dataset.c, c = cloudClient(), m = $('cloudDlg');
   if(a==='close'){ m.classList.add('hidden'); return; }
   if(a==='login'){
-    const email = ($('cloudEmail').value||'').trim(); if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ $('cloudMsg').textContent = 'Isi email yang benar.'; return; }
-    b.disabled = true; $('cloudMsg').textContent = 'Mengirim…';
-    const { error } = await c.auth.signInWithOtp({email, options:{emailRedirectTo: location.origin + location.pathname}});
-    b.disabled = false; $('cloudMsg').innerHTML = error ? '<span style="color:#a21d32">Gagal: '+esc(error.message)+'</span>' : 'Link login sudah dikirim ke <b>'+esc(email)+'</b>. Buka email itu dan klik link-nya di browser ini.';
+    const u = ($('cloudUser').value||'').trim(), pw = $('cloudPass').value||'';
+    if(!u || /\s/.test(u)){ $('cloudMsg').textContent = 'Isi username (tanpa spasi).'; return; }
+    if(!pw){ $('cloudMsg').textContent = 'Isi password.'; return; }
+    b.disabled = true; $('cloudMsg').textContent = 'Masuk…';
+    const { data, error } = await c.auth.signInWithPassword({email: cloudLoginEmail(u), password: pw});
+    b.disabled = false;
+    if(error){ $('cloudMsg').innerHTML = '<span style="color:#a21d32">'+esc(/invalid/i.test(error.message||'') ? 'Username atau password salah.' : 'Gagal masuk: '+error.message)+'</span>'; return; }
+    cloudUser = data && data.user ? data.user : cloudUser; cloudPanel();
     return;
+  }
+  if(a==='passwd'){
+    cloudShow('<h3>Ganti password</h3><p style="font-size:13px;color:#334155">Akun: <b>'+esc(cloudUserName(cloudUser&&cloudUser.email))+'</b>. Minimal 8 karakter.</p>'+
+      '<label for="cloudNewPass" style="font-size:13px">Password baru</label><input id="cloudNewPass" type="password" autocomplete="new-password" style="width:100%;font-size:16px;padding:8px;margin:4px 0 10px;box-sizing:border-box">'+
+      '<label for="cloudNewPass2" style="font-size:13px">Ulangi password baru</label><input id="cloudNewPass2" type="password" autocomplete="new-password" style="width:100%;font-size:16px;padding:8px;margin:4px 0 10px;box-sizing:border-box">'+
+      '<div id="cloudMsg" style="font-size:13px"></div><div class="row"><button class="btn" data-c="back">Kembali</button><button class="btn primary" data-c="setpass">Simpan password</button></div>');
+    setTimeout(()=>$('cloudNewPass')&&$('cloudNewPass').focus(), 0); return;
+  }
+  if(a==='setpass'){
+    const p1 = $('cloudNewPass').value||'', p2 = $('cloudNewPass2').value||'';
+    if(p1.length < 8){ $('cloudMsg').textContent = 'Password minimal 8 karakter.'; return; }
+    if(p1 !== p2){ $('cloudMsg').textContent = 'Kedua password tidak sama.'; return; }
+    b.disabled = true; const { error } = await c.auth.updateUser({password: p1}); b.disabled = false;
+    if(error){ $('cloudMsg').innerHTML = '<span style="color:#a21d32">Gagal: '+esc(error.message)+'</span>'; return; }
+    toast('Password diganti.'); cloudPanel(); return;
   }
   if(a==='logout'){ if(cloudDirty() && !confirm('Ada perubahan yang belum tersimpan ke cloud. Tetap keluar?')) return; await c.auth.signOut(); cloudUser = null; cloudSetState(''); cloudPanel(); return; }
   if(a==='new'){ await cloudNew($('cloudNewName').value); return; }
@@ -175,7 +208,7 @@ async function cloudClick(e){
   const anchor = $('btnExport'); if(!anchor) return;
   const btn = document.createElement('button'); btn.className = 'btn'; btn.id = 'btnCloud'; btn.type = 'button'; btn.textContent = '☁ Cloud'; btn.onclick = cloudPanel;
   anchor.parentNode.insertBefore(btn, anchor);
-  try{ const p = JSON.parse(store.get(CLOUD_PROJ_KEY)||'null'); if(p && p.id){ cloudProj = {id:p.id, name:p.name, version:p.version}; cloudHash = cloudHashOf(cloudSnapshot()); if(p.restored) cloudHash = ''; } }catch(e){}
+  try{ const p = JSON.parse(store.get(CLOUD_PROJ_KEY)||'null'); if(p && p.id){ cloudProj = {id:p.id, name:p.name, version:p.version}; const s0 = cloudSnapshot(); cloudHash = cloudHashOf(s0); cloudRows = p.rows || cloudRowCount(s0); if(p.restored) cloudHash = ''; } }catch(e){}
   cloudSetState(cloudProj ? '' : '');
   const c = cloudClient(); if(!c) return;
   try{ if(/[?&]code=/.test(location.search)) { await c.auth.getSession(); history.replaceState(null, '', location.pathname + location.hash); } }catch(e){}

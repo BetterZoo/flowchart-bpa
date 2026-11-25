@@ -1,6 +1,6 @@
 // In-memory Supabase stand-in for tests (persists in localStorage '__mockdb' so page reloads keep data).
 (function(){
-  const load=()=>{try{return JSON.parse(localStorage.getItem('__mockdb'))||{members:[{email:'dea@better.co'}],projects:[],project_versions:[],seq:1};}catch(e){return {members:[],projects:[],project_versions:[],seq:1};}};
+  const load=()=>{try{return JSON.parse(localStorage.getItem('__mockdb'))||{members:[{email:'dea@better.co'},{email:'dea@flowbpa.local'}],projects:[],project_versions:[],seq:1};}catch(e){return {members:[],projects:[],project_versions:[],seq:1};}};
   const save=db=>localStorage.setItem('__mockdb',JSON.stringify(db));
   const user=()=>{const e=localStorage.getItem('__mockuser');return e?{email:e,id:'u-'+e}:null;};
   function Q(table){ this.t=table; this.f=[]; this.op='select'; this.cols='*'; this.ret=false; this.one=false; this.ord=null; this.lim=null; }
@@ -29,6 +29,9 @@
   window.__sbMock={createClient(){ return {
     auth:{ async getSession(){ const u=user(); return {data:{session:u?{user:u}:null}}; },
       async signInWithOtp({email}){ window.__otp=email; return {error:null}; },
+      // v1.9.7: password login; test accounts live in localStorage '__mockpw' as {email: password}, default dea@flowbpa.local / rahasia123
+      async signInWithPassword({email,password}){ const pw=JSON.parse(localStorage.getItem('__mockpw')||'{"dea@flowbpa.local":"rahasia123"}'); if(pw[email]!==password) return {data:{user:null,session:null},error:{message:'Invalid login credentials'}}; localStorage.setItem('__mockuser',email); const u={email,id:'u-'+email}; return {data:{user:u,session:{user:u}},error:null}; },
+      async updateUser({password}){ const u=user(); if(!u) return {data:null,error:{message:'not authenticated'}}; const pw=JSON.parse(localStorage.getItem('__mockpw')||'{"dea@flowbpa.local":"rahasia123"}'); pw[u.email]=password; localStorage.setItem('__mockpw',JSON.stringify(pw)); return {data:{user:u},error:null}; },
       async signOut(){ localStorage.removeItem('__mockuser'); return {error:null}; },
       onAuthStateChange(){ return {data:{subscription:{unsubscribe(){}}}}; } },
     from(t){ return new Q(t); } }; }};
