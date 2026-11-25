@@ -231,6 +231,11 @@ async function cloudClick(e){
   if(a==='rename'){ const nm = (window.prompt ? prompt('Nama baru proyek:', b.dataset.name) : null); if(!nm || !nm.trim()) return; const { error } = await c.from('projects').update({name:nm.trim()}).eq('id', b.dataset.id); if(error) toast('Gagal ganti nama: '+error.message); else { if(cloudProj && cloudProj.id===b.dataset.id){ cloudProj.name = nm.trim(); store.set(CLOUD_PROJ_KEY, JSON.stringify(cloudProj)); cloudSetState(cloudState); } cloudPanel(); } return; }
   if(a==='delete'){ await cloudDelete(b.dataset.id, b.dataset.name); return; }
   if(a==='merge'){ cloudMergeStart(); return; }
+  if(a==='mapStart'){ b.disabled = true; try{ await cloudMapStart(); } finally { if(b.isConnected) b.disabled = false; } return; }
+  if(a==='mapAll'){ const i = +b.dataset.i; for(const l3 of cloudMapCtx.l3s) if(l3.has[i]){ cloudMapCtx.map[l3.l3no] = i; l3.touched = true; } cloudMapRender(); return; }
+  if(a==='mapCheck'){ cloudMapCheck(); return; }
+  if(a==='mapBack'){ cloudMapRender(); return; }
+  if(a==='mapCreate'){ b.disabled = true; try{ await cloudMapCreate(); } finally { if(b.isConnected) b.disabled = false; } return; }
   if(a==='mergeDiff'){ b.disabled = true; try{ await cloudMergeDiff(); } finally { b.disabled = false; } return; }
   if(a==='mergeCreate'){ b.disabled = true; try{ await cloudMergeCreate(); } finally { if(b.isConnected) b.disabled = false; } return; }
   if(a==='detach'){ cloudDetach(); return; }
@@ -378,9 +383,9 @@ function cloudMergeNames(docs){
 async function cloudMergeStart(){
   const c = cloudClient(); const { data:list, error } = await c.from('projects').select('id,name,version,updated_at,updated_by').order('updated_at', {ascending:false});
   if(error){ toast('Gagal memuat daftar: '+error.message, 7000); return; }
-  cloudShow('<h3>Gabungkan proyek</h3><p style="font-size:13px;line-height:1.5;color:#334155">Pilih 2 proyek atau lebih. Hasilnya proyek <b>baru</b>; proyek asal tidak diubah. Bagian yang berbeda diambil dari perubahan terbaru menurut log simpan, dan bisa lw ubah sebelum dibuat.</p>'+
+  cloudShow('<h3>Gabungkan proyek</h3><p style="font-size:13px;line-height:1.5;color:#334155">Pilih 2 proyek atau lebih. Hasilnya proyek <b>baru</b>; proyek asal tidak diubah.</p><ul style="font-size:12.5px;line-height:1.5;color:#334155;padding-left:18px;margin:4px 0 8px"><li><b>Bandingkan otomatis</b>: bagian yang berbeda diambil dari perubahan terbaru menurut log simpan; bisa diubah sebelum dibuat.</li><li><b>Mapping per L3</b>: lw pilih dokumen sumber untuk tiap L3; tanpa membandingkan isi.</li></ul>'+
     list.map(p => '<label style="display:flex;gap:8px;align-items:flex-start;border-top:1px solid var(--line,#e5e7eb);padding:7px 0;font-size:13.5px"><input type="checkbox" class="cmSel" value="'+esc(p.id)+'" style="margin-top:3px"><span><b>'+esc(p.name)+'</b><br><span style="font-size:12px;color:#64748b">v'+p.version+' · '+esc(cloudTime(p.updated_at))+' · '+esc(cloudUserName(p.updated_by))+'</span></span></label>').join('')+
-    '<div id="cloudMsg" style="font-size:13px;margin-top:8px"></div><div class="row"><button class="btn" data-c="back">Kembali</button><button class="btn primary" data-c="mergeDiff">Bandingkan</button></div>');
+    '<div id="cloudMsg" style="font-size:13px;margin-top:8px"></div><div class="row"><button class="btn" data-c="back">Kembali</button><button class="btn" data-c="mapStart">Mapping per L3</button><button class="btn primary" data-c="mergeDiff">Bandingkan otomatis</button></div>');
 }
 async function cloudMergeDiff(){
   const ids = [...document.querySelectorAll('.cmSel:checked')].map(x => x.value);
@@ -433,4 +438,114 @@ async function cloudMergeCreate(){
   await c.from('project_versions').insert({project_id:data.id, version:1, data:snap, note:('Hasil gabungan: '+src).slice(0, 500), saved_by:cloudUser.email});
   cloudMergeCtx = null;
   cloudShow('<h3>Proyek gabungan dibuat</h3><p style="font-size:13px;line-height:1.5;color:#334155"><b>'+esc(name)+'</b> berisi '+n+' baris aktivitas, digabung dari: '+esc(src)+'. Proyek asal tidak diubah.</p><div class="row"><button class="btn" data-c="back">Kembali ke daftar</button><button class="btn primary" data-c="open" data-id="'+esc(data.id)+'">Buka proyek gabungan</button></div>');
+}
+
+/* ================= v1.12.0: Gabungkan dengan mapping per L3 (tanpa diff) =================
+   The user picks, per L3, which project supplies it. Everything attached to an L4 under that L3 comes from
+   that project only: AS-IS rows, TO-BE draft, SLA/output/notes of its activities, position/unit maps, lane
+   mode, lane roles (added/hidden/order), analysis and change register entries. Data not tied to a process
+   (role aliases, decision map, position display, BPMN symbol settings, file name) comes from the main project.
+   Used activity codes are the union of all selected projects. */
+let cloudMapCtx = null;
+function cloudMapL4s(docs){
+  // l4no → {l3no, l3, l4}
+  const m = new Map();
+  for(const d of docs){ try{ for(const r of JSON.parse(d.snap['flowbpa:data']).rows){ const l4 = String(r.l4no||''); if(l4 && !m.has(l4)) m.set(l4, {l3no:String(r.l3no||l4), l3:r.l3||'', l4:r.l4||''}); } }catch(e){} }
+  return m;
+}
+function cloudMapL4OfKey(key, l4s){
+  const [part, ...rest] = key.split('|'), k = rest.join('|');
+  if(part === 'data' || part === 'elab' || part === 'posmap' || part === 'unitmap' || part === 'lanemodes') return k;
+  if(part === 'roles') return rest[0] === 'alias' ? null : rest.slice(1).join('|');
+  if(part === 'extra'){ let best = null; for(const l4 of l4s.keys()) if(k.startsWith(l4+'.') && (!best || l4.length > best.length)) best = l4; return best || k.replace(/-G\d+$/,'').split('.').slice(0,-1).join('.'); }
+  return undefined; // decided by the record itself (analysis/register) or global
+}
+function cloudMapOwnerL4(key, val, l4s){
+  const [part] = key.split('|'); let l4 = cloudMapL4OfKey(key, l4s);
+  if(l4 === undefined && (part === 'analysis' || part === 'changeRegister')){ const r = cloudMergeParse(val); l4 = r && r.l4 ? String(r.l4) : null; }
+  return l4 === undefined ? null : l4;
+}
+function cloudMapRender(){
+  const {docs, l3s, map, main} = cloudMapCtx, D = docs;
+  const opt = (l3, i) => { const has = l3.has[i]; return '<option value="'+i+'"'+(map[l3.l3no] === i ? ' selected' : '')+(has ? '' : ' disabled')+'>'+esc(D[i].name)+(has ? ' ('+(l3.chg[i] ? 'diubah' : 'sama dengan awal')+')' : ' (tidak ada L3 ini)')+'</option>'; };
+  cloudShow('<h3>Mapping per L3</h3>'+
+    '<p style="font-size:13px;line-height:1.5;color:#334155">Pilih dokumen sumber untuk tiap L3. Seluruh isi L4 di bawahnya (AS-IS, rancangan TO-BE, SLA/output/catatan, pemetaan jabatan/unit, pengaturan lane, analisis) diambil utuh dari dokumen itu, tanpa membandingkan isi. Keterangan "diubah" hanya informasi: isinya berbeda dari snapshot awal.</p>'+
+    '<label style="font-size:13px;display:block">Dokumen utama (default L3 dan data umum: alias peran, pemetaan keputusan, pengaturan tampilan)</label><select id="cmMain" style="width:100%;font-size:13.5px;margin:4px 0 8px">'+D.map((d, i) => '<option value="'+i+'"'+(i === main ? ' selected' : '')+'>'+esc(d.name)+' · '+esc(cloudTime(d.updated_at))+'</option>').join('')+'</select>'+
+    '<div style="font-size:12.5px;margin:4px 0 8px">Semua L3 dari: '+D.map((d, i) => '<a href="#" data-c="mapAll" data-i="'+i+'">'+esc(d.name)+'</a>').join(' · ')+'</div>'+
+    l3s.map(l3 => '<div style="border-top:1px solid var(--line,#e5e7eb);padding:6px 0;font-size:12.5px"><div><b>'+esc(l3.l3no)+'</b> '+esc(l3.l3)+' <span style="color:#64748b">· '+l3.l4s.length+' L4</span></div><div style="font-size:11.5px;color:#64748b">'+esc(l3.l4s.map(x => x.l4no+' '+x.l4).join('; '))+'</div><select data-ml3="'+esc(l3.l3no)+'" style="width:100%;font-size:13px;margin-top:3px">'+D.map((_, i) => opt(l3, i)).join('')+'</select></div>').join('')+
+    '<div id="cloudMsg" style="font-size:13px;margin-top:8px"></div><div class="row"><button class="btn" data-c="merge">Kembali</button><button class="btn primary" data-c="mapCheck">Periksa mapping</button></div>');
+  $('cmMain').onchange = () => { const nm = +$('cmMain').value; for(const l3 of l3s) if(!l3.touched){ map[l3.l3no] = l3.has[nm] ? nm : map[l3.l3no]; } cloudMapCtx.main = nm; cloudMapRender(); };
+  document.querySelectorAll('[data-ml3]').forEach(s => s.onchange = () => { const l3 = l3s.find(x => x.l3no === s.dataset.ml3); map[l3.l3no] = +s.value; l3.touched = true; });
+}
+async function cloudMapStart(){
+  const ids = [...document.querySelectorAll('.cmSel:checked')].map(x => x.value);
+  if(ids.length < 2){ $('cloudMsg').textContent = 'Pilih minimal 2 proyek.'; return; }
+  $('cloudMsg').textContent = 'Memuat '+ids.length+' proyek…';
+  let docs; try{ docs = await cloudMergeLoad(ids); }catch(e){ $('cloudMsg').textContent = e.message; return; }
+  const l4s = cloudMapL4s(docs), anc = docs.filter(d => d.base).sort((a, b) => a.baseAt - b.baseAt)[0] || null;
+  const byL3 = new Map();
+  for(const [l4no, x] of l4s){ if(!byL3.has(x.l3no)) byL3.set(x.l3no, {l3no:x.l3no, l3:x.l3, l4s:[]}); byL3.get(x.l3no).l4s.push({l4no, l4:x.l4}); }
+  const cmp = (a, b) => typeof cmpCode === 'function' ? cmpCode(a, b) : String(a).localeCompare(String(b));
+  const l3s = [...byL3.values()].sort((a, b) => cmp(a.l3no, b.l3no));
+  for(const l3 of l3s){
+    const set = new Set(l3.l4s.map(x => x.l4no));
+    l3.has = docs.map(d => [...set].some(l4 => d.units.has('data|'+l4)));
+    l3.chg = docs.map(d => { if(!anc) return false; const keys = new Set(); for(const k of d.units.keys()) if(set.has(cloudMapOwnerL4(k, d.units.get(k), l4s))) keys.add(k); for(const k of anc.base.keys()) if(set.has(cloudMapOwnerL4(k, anc.base.get(k), l4s))) keys.add(k); for(const k of keys) if((d.units.get(k) ?? null) !== (anc.base.get(k) ?? null)) return true; return false; });
+  }
+  const main = docs.map((d, i) => i).sort((a, b) => Date.parse(docs[b].updated_at) - Date.parse(docs[a].updated_at))[0];
+  const map = {}; for(const l3 of l3s){ map[l3.l3no] = l3.has[main] ? main : l3.has.indexOf(true); }
+  cloudMapCtx = {docs, l4s, l3s, map, main};
+  cloudMapRender();
+}
+function cloudMapBuild(){
+  const {docs, l4s, map, main} = cloudMapCtx, units = new Map(), used = new Set();
+  const ownerOf = l4 => { const x = l4s.get(l4); return x && map[x.l3no] !== undefined ? map[x.l3no] : main; };
+  docs.forEach((d, i) => { for(const [k, v] of d.units){ const l4 = cloudMapOwnerL4(k, v, l4s); const owner = l4 ? ownerOf(l4) : main; if(owner === i) units.set(k, v); } });
+  for(const d of docs){ try{ JSON.parse(d.snap['flowbpa:usedCodes']||'[]').forEach(x => used.add(x)); }catch(e){} }
+  const semKey = Object.keys(docs[main].snap).find(k => k.startsWith('bpa_bpmn_semantics_')) || docs.map(d => Object.keys(d.snap).find(k => k.startsWith('bpa_bpmn_semantics_'))).find(Boolean) || '';
+  let order = []; try{ order = [...new Set(JSON.parse(docs[main].snap['flowbpa:data']).rows.map(r => r.l4no))]; }catch(e){}
+  const snap = cloudMergeJoin(units, used, semKey, order);
+  try{ for(const r of JSON.parse(snap['flowbpa:data']).rows) used.add(r.l5no); }catch(e){}
+  try{ for(const items of Object.values(JSON.parse(snap['flowbpa:elab']||'{}'))) for(const i of items||[]) if(i.type === 'graph') try{ JSON.parse(i.text).forEach(r => !/-G\d+$/.test(r.l5no) && used.add(r.l5no)); }catch(e){} }catch(e){}
+  snap['flowbpa:usedCodes'] = JSON.stringify([...used].sort());
+  return snap;
+}
+// references (Proses Sebelum/Sesudah, Data dari) that point to activities missing from the result
+function cloudMapDangling(snap){
+  const RE = /\b\d+(?:\.\d+){2,}(?:-G\d+)?\b/g, asis = new Set(), tobe = new Set(), out = [];
+  let rows = [], elab = {}; try{ rows = JSON.parse(snap['flowbpa:data']).rows; }catch(e){} try{ elab = JSON.parse(snap['flowbpa:elab']||'{}'); }catch(e){}
+  rows.forEach(r => asis.add(r.l5no));
+  const drafts = [];
+  for(const [l4, items] of Object.entries(elab)){ const g = (items||[]).filter(i => i.type === 'graph' && i.status !== 'rejected').slice(-1)[0]; if(!g) continue; try{ const dr = JSON.parse(g.text); dr.forEach(r => tobe.add(r.l5no)); drafts.push([l4, dr]); }catch(e){} }
+  const check = (r, where, known) => { for(const f of ['prev','next','dataFrom']) for(const c of String(r[f]||'').match(RE)||[]) if(!known.has(c)) out.push({where, from:r.l5no, ref:c}); };
+  rows.forEach(r => check(r, 'AS-IS', asis));
+  const all = new Set([...asis, ...tobe]); drafts.forEach(([l4, dr]) => dr.forEach(r => check(r, 'TO-BE', all)));
+  const seen = new Set(); return out.filter(x => { const k = x.where+x.from+x.ref; if(seen.has(k)) return false; seen.add(k); return true; });
+}
+function cloudMapCheck(){
+  const {docs, l3s, map, main} = cloudMapCtx;
+  let snap; try{ snap = cloudMapBuild(); }catch(e){ $('cloudMsg').textContent = 'Gagal menyusun: '+e.message; return; }
+  const dang = cloudMapDangling(snap), n = cloudRowCount(snap);
+  cloudMapCtx.snap = snap;
+  const per = {}; for(const l3 of l3s){ const nm = docs[map[l3.l3no]] ? docs[map[l3.l3no]].name : '(tidak ada)'; (per[nm] = per[nm] || []).push(l3.l3no); }
+  cloudShow('<h3>Ringkasan mapping</h3>'+
+    '<p style="font-size:13px;line-height:1.5;color:#334155">Hasil: '+n+' baris aktivitas dari '+l3s.length+' L3. Data umum dari <b>'+esc(docs[main].name)+'</b>.</p>'+
+    Object.entries(per).map(([nm, l]) => '<div style="font-size:12.5px;border-top:1px solid var(--line,#e5e7eb);padding:5px 0"><b>'+esc(nm)+'</b>: '+esc(l.join(', '))+'</div>').join('')+
+    (dang.length ? '<div style="margin-top:10px;font-size:12.5px;color:#a16207"><b>'+dang.length+' rujukan ke aktivitas yang tidak ada di hasil</b> (biasanya karena proses terkait diambil dari dokumen lain). Bisa dibuat tetap, lalu dirapikan di aplikasi:<div style="max-height:160px;overflow:auto;margin-top:4px">'+dang.slice(0, 200).map(x => '<div>'+esc(x.where)+' '+esc(x.from)+' → '+esc(x.ref)+'</div>').join('')+'</div></div>' : '<p style="font-size:12.5px;color:#0a7d32;margin-top:10px">Semua rujukan Proses Sebelum/Sesudah tersambung.</p>')+
+    '<label for="cmName" style="font-size:13px;display:block;margin-top:12px">Nama proyek baru</label><input id="cmName" style="width:100%;font-size:15px;padding:8px;margin:4px 0 8px;box-sizing:border-box" value="'+esc(('Mapping — '+docs.map(d => d.name).join(' + ')).slice(0, 120))+'">'+
+    '<div id="cloudMsg" style="font-size:13px"></div><div class="row"><button class="btn" data-c="mapBack">Ubah mapping</button><button class="btn primary" data-c="mapCreate">Buat proyek baru</button></div>');
+}
+async function cloudMapCreate(){
+  const c = cloudClient(), name = ($('cmName').value||'').trim(); if(!name){ $('cloudMsg').textContent = 'Isi nama proyek baru.'; return; }
+  const {docs, l3s, map, main, snap} = cloudMapCtx, n = cloudRowCount(snap);
+  if(!n){ $('cloudMsg').textContent = 'Hasil kosong; tidak dibuat.'; return; }
+  $('cloudMsg').textContent = 'Menyimpan…';
+  const groups = {}; for(const l3 of l3s){ const i = map[l3.l3no]; if(i !== main) (groups[i] = groups[i] || []).push(l3.l3no); }
+  const note = ('Mapping L3: '+Object.entries(groups).map(([i, l]) => l.join(', ')+' ← '+docs[i].name+' v'+docs[i].version).join('; ')+(Object.keys(groups).length ? '; ' : '')+'lainnya ← '+docs[main].name+' v'+docs[main].version).slice(0, 1000);
+  const fileName = (()=>{ try{ return JSON.parse(snap['flowbpa:data']).fileName || null; }catch(e){ return null; } })();
+  const { data, error } = await c.from('projects').insert({name, data:snap, version:1, file_name:fileName, created_by:cloudUser.email, updated_by:cloudUser.email}).select('id,name,version').single();
+  if(error){ $('cloudMsg').textContent = 'Gagal membuat proyek: '+error.message; return; }
+  await c.from('project_versions').insert({project_id:data.id, version:1, data:snap, note, saved_by:cloudUser.email});
+  cloudMapCtx = null;
+  cloudShow('<h3>Proyek baru dibuat</h3><p style="font-size:13px;line-height:1.5;color:#334155"><b>'+esc(name)+'</b> berisi '+n+' baris aktivitas. '+esc(note)+'. Dokumen asal tidak diubah.</p><div class="row"><button class="btn" data-c="back">Kembali ke daftar</button><button class="btn primary" data-c="open" data-id="'+esc(data.id)+'">Buka proyek baru</button></div>');
 }

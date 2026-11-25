@@ -1,5 +1,12 @@
 # Changelog Flowchart BPA
 
+## v1.12.0 — Gabungkan dengan mapping per L3 (2026-11-25)
+- Layar Gabungkan proyek kini punya dua metode: "Bandingkan otomatis" (diff, seperti v1.11) dan "Mapping per L3" (tanpa diff).
+- Mapping per L3: pilih dokumen utama, lalu dokumen sumber untuk tiap L3 (default: dokumen utama bila punya L3 itu; ada pintasan "Semua L3 dari …"). Keterangan "diubah / sama dengan awal" hanya informasi.
+- Untuk tiap L4 di bawah L3, semua isi diambil utuh dari dokumen yang dipilih: data AS-IS, rancangan TO-BE, SLA/output/catatan (termasuk aktivitas baru TO-BE), pemetaan jabatan/unit, mode lane, pengaturan lane per L4, analisis dan register. Data umum (alias peran, pemetaan keputusan, tampilan jabatan, pengaturan simbol BPMN, nama file) dari dokumen utama. Nomor kode terpakai digabung dari semua dokumen plus kode di hasil.
+- Sebelum dibuat ada ringkasan per dokumen dan daftar rujukan Proses Sebelum/Sesudah/Data dari yang mengarah ke aktivitas yang tidak ada di hasil.
+- Catatan versi 1 proyek baru mencatat mapping-nya (mis. "L3A ← Idur v3; lainnya ← Dea v3").
+
 ## v1.11.1 — Perbaikan gabung proyek yang sumbernya hasil gabungan (2026-11-25)
 - Bug: menggabungkan proyek hasil gabungan (mis. "Gabungan — Idur_Dea") dengan proyek lain membuat SLA/catatan dan rancangan TO-BE yang hanya ada di proyek gabungan itu hilang. Penyebab: snapshot awal proyek gabungan sudah berisi semuanya, sehingga isiannya dianggap "tidak diubah", sedangkan proyek lain yang belum punya isian dianggap "menghapus" dengan log lebih baru.
 - Perbaikan: "diubah" kini dinilai terhadap satu leluhur bersama, yaitu snapshot awal tertua di antara proyek yang dipilih.
