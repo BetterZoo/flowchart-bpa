@@ -1264,7 +1264,7 @@ function bpmnEventLabel(n, lines, color){
 function drawNode(n){
   const x = n.cx-n.w/2, y = n.cy-n.h/2, o = [];
   if(n.type==='act'){
-    const p = isProp(n), badge = n.isNew ? 'BARU' : n.code;
+    const p = isProp(n), badge = n.isNew ? 'BARU' : dispNo(n.code);
     const fill = n.isNew ? (p?C.propF:C.newF) : (p?C.propF:C.box);
     const stroke = p ? C.prop : n.isNew ? C.newS : (n.chg ? C.chgS : C.boxS);
     o.push(n.isNew ? '<g data-elab="'+esc(n.elab.id)+'">' : '<g data-code="'+esc(n.code)+'">');
@@ -1498,6 +1498,7 @@ function select(l4no, initial){
 function redraw(){
   syncWorkspace();
   const g = state.l4s.get(state.current); if(!g) return;
+  DISP = ($('processEditMode').value==='tobe' || ($('processEditMode').value!=='asis' && state.showProposed)) ? tobeNumberMap(g) : new Map();
   bpmnPreviewRendering=true;
   try{state.diagram = buildDiagram(g, $('statusLabel').value.trim(), {ver: $('processEditMode').value==='asis' ? 'asis' : ($('processEditMode').value==='tobe' || state.showProposed) ? 'tobe' : 'approved', items: $('processEditMode').value==='asis' ? [] : elabFor(g.l4no, $('processEditMode').value==='tobe' || state.showProposed), mono: !state.colorView});}
   finally{bpmnPreviewRendering=true;}
@@ -1554,6 +1555,30 @@ function elabFor(l4no, withProposed){ return (state.elab[l4no]||[]).filter(i=>i.
 function saveElab(){ const clean = {}; for(const [k,v] of Object.entries(state.elab)) if(v && v.length) clean[k] = v; store.set('flowbpa:elab', JSON.stringify(clean)); }
 function elabChanged(){ saveElab(); redraw(); renderTree(); if(state.sideMode==='elab') renderElab(); }
 function actsOf(g){ return g.acts.filter(a=>!isGateRow(a)).sort((a,b)=>cmpCode(a.l5no,b.l5no)); }
+// v1.10.1: TO-BE display numbers follow the flow order (01, 02, …; gateways <activity>-G1). Internal codes stay
+// stable so AS-IS vs TO-BE comparison, SLA/notes and references keep working; only what is shown is renumbered.
+let DISP=new Map();
+const dispNo=c=>DISP.get(c)||c;
+function tobeNumberMap(g){
+  const map=new Map(); let d;
+  try{ if(!g||!draftGraph(g)) return map; d=materializeDraft(g); }catch(e){ return map; }
+  const rows=d.rows, ordered=flowOrder(rows.map(r=>({...r}))).map(x=>rows.find(r=>r.l5no===x.l5no)).filter(Boolean);
+  for(const r of rows) if(!ordered.includes(r)) ordered.push(r);
+  let n=0, base=g.l4no+'.00', gi=0;
+  for(const r of ordered){ if(isGateRow(r)){ gi++; map.set(r.l5no, base+'-G'+gi); } else { n++; base=g.l4no+'.'+String(n).padStart(2,'0'); gi=0; map.set(r.l5no, base); } }
+  return map;
+}
+// v1.10.1: activities for the Catatan (SLA/output/notes) panel — the TO-BE draft when one exists, so steps added in the app appear too
+function notesActs(g){
+  const mode=$('processEditMode').value;
+  if(mode==='asis'||!draftGraph(g)) return {acts:actsOf(g), num:new Map()};
+  try{
+    const d=materializeDraft(g), num=tobeNumberMap(g), key=a=>num.get(a.l5no)||a.l5no;
+    const acts=d.rows.filter(a=>!isGateRow(a)).sort((a,b)=>cmpCode(key(a),key(b)));
+    const have=new Set(acts.map(a=>a.l5no)), gone=actsOf(g).filter(a=>!have.has(a.l5no)&&state.extra[a.l5no]).map(a=>({...a,_gone:true}));
+    return {acts:[...acts,...gone], num};
+  }catch(e){ return {acts:actsOf(g), num:new Map()}; }
+}
 
 function openElab(focusId){
   state.legacyAiPanel=false;
@@ -2074,7 +2099,8 @@ async function exportElabSheet(){
   }
   if(hasExtra()){
     const X = [['No L4','No L5','Aktivitas','SLA','Dokumen/Output','Catatan','Input/Output Tambahan']];
-    for(const c of Object.keys(state.extra).sort(cmpCode)){ const r = state.byCode.get(c), x = state.extra[c]; X.push([r?r.l4no:c.split('.').slice(0,2).join('.'), c, r?r.l5:'', x.sla||'', x.out||'', x.note||'', encodeDocs(x.docs)]); }
+    const tobeBy=new Map(); for(const g of state.l4s.values()){ if(!draftGraph(g)) continue; try{ for(const r of materializeDraft(g).rows) if(!state.byCode.has(r.l5no)) tobeBy.set(r.l5no,r); }catch(e){} }
+    for(const c of Object.keys(state.extra).sort(cmpCode)){ const r = state.byCode.get(c)||tobeBy.get(c), x = state.extra[c]; X.push([r?r.l4no:c.split('.').slice(0,2).join('.'), c, r?r.l5:'', x.sla||'', x.out||'', x.note||'', encodeDocs(x.docs)]); }
     const wx = XLSX.utils.aoa_to_sheet(X); wx['!cols'] = [8,11,46,20,44,50,60].map(w=>({wch:w})); XLSX.utils.book_append_sheet(wb, wx, 'SLA & Output');
   }
   if(hasRoleEdits()){ const wr = XLSX.utils.aoa_to_sheet(roleSheet()); wr['!cols'] = [14,8,30,40].map(w=>({wch:w})); XLSX.utils.book_append_sheet(wb, wr, 'Pengaturan Lane'); }
@@ -2362,13 +2388,13 @@ function saveExtra(){ const c = {}, mem = {}; for(const [k,v] of Object.entries(
 function openExtra(focusCode){ state.sideMode = 'extra'; $('btnX').classList.add('on'); $('btnElab').classList.remove('on'); $('btnR').classList.remove('on'); $('detail').classList.remove('hidden'); renderExtra(focusCode); }
 function renderExtra(focusCode){
   const g = state.l4s.get(state.current); if(!g) return;
-  const acts = actsOf(g); const filled = acts.filter(a=>state.extra[a.l5no] && (state.extra[a.l5no].sla || state.extra[a.l5no].out || state.extra[a.l5no].note)).length;
+  const {acts, num} = notesActs(g); const filled = acts.filter(a=>state.extra[a.l5no] && (state.extra[a.l5no].sla || state.extra[a.l5no].out || state.extra[a.l5no].note)).length;
   let h = '<button class="tb x" data-a="close">✕</button><div class="dcode" style="color:#334155">✎ CATATAN</div><h3>'+esc(g.l4no+' '+g.l4)+'</h3>'+
     '<p class="muted">Isi SLA, dokumen/output, dan catatan per aktivitas. Ketik langsung saat diskusi dengan klien; tersimpan otomatis dan langsung tampil di flowchart. Pindah kolom dengan Tab. '+filled+' dari '+acts.length+' aktivitas sudah terisi.</p>';
   h += '<datalist id="slaList">'+['1 hari kerja','2 hari kerja','3 hari kerja','5 hari kerja','7 hari kerja','14 hari kerja','1 bulan','Sesuai jadwal','Maks. 1 hari'].map(v=>'<option value="'+v+'">').join('')+'</datalist>';
   for(const a of acts){
     const x = state.extra[a.l5no] || {};
-    h += '<div class="xrow" data-row="'+esc(a.l5no)+'"><div class="xh"><b>'+esc(a.l5no)+'</b> '+esc(a.l5)+'</div>'+
+    h += '<div class="xrow" data-row="'+esc(a.l5no)+'"><div class="xh"><b>'+esc(a._gone?a.l5no:(num.get(a.l5no)||a.l5no))+'</b> '+esc(a.l5)+(a._gone?' <span class="muted">(tidak ada di TO-BE)</span>':'')+'</div>'+
       '<div class="xin"><input data-xf="sla" data-code="'+esc(a.l5no)+'" list="slaList" placeholder="SLA (mis. 2 HK)" value="'+esc(x.sla||'')+'"><input data-xf="out" data-code="'+esc(a.l5no)+'" placeholder="Tambah dokumen / output (manual)" value="'+esc(x.out||'')+'"><input data-xf="note" data-code="'+esc(a.l5no)+'" class="xnote" placeholder="Catatan (opsional, muncul sebagai nomor di flowchart)" value="'+esc(x.note||'')+'"></div></div>';
   }
   h += '<div class="io"><p class="muted" style="margin-top:0">Ikut tersimpan saat lw klik <b>Unduh sheet</b> (sheet "SLA &amp; Output"), bersama elaborasi dan pemetaan jabatan.</p><div class="cbtn"><button class="sbtn" data-a="exportElab">Unduh sheet (.xlsx)</button></div></div>';
@@ -3180,7 +3206,7 @@ function structuralEditor(code,op,style){
     const prior=snapshot();storageFailed=false;reserveCodes(result);rememberCodes();
     if(mode==='asis'){result.forEach(r=>r._asisEdited=true);if(op==='delete'){delete state.extra[code];saveExtra();}applyCrossPatches(px);ingest([...state.rows.filter(r=>r.l4no!==g.l4no),...result],state.fileName);select(g.l4no);}
     else{saveUnifiedDraft(g,result,absorbed,'Perubahan struktur: '+op+' '+code);}
-    $('detail').classList.add('hidden');state.sideMode=null;undoStack.push({before:prior,after:snapshot()});if(!storageFailed)toast(op==='add'&&px.newCode?'Aktivitas '+px.newCode+' ditambahkan.':op==='delete'?(isGateRow(a)?'Gateway '+code+' dihapus.':'Aktivitas '+code+' dihapus, alur disambung.'):(px.newGates&&px.newGates.length)?'Gateway baru '+px.newGates.join(', ')+' ditambahkan. Klik dua kali belah ketupatnya untuk mengedit.':'Perubahan struktur tersimpan.');else toast('Perubahan hanya di memori. Export Excel sekarang.',9000);
+    $('detail').classList.add('hidden');state.sideMode=null;undoStack.push({before:prior,after:snapshot()});if(!storageFailed)toast(op==='add'&&px.newCode?'Aktivitas '+(mode==='tobe'?(tobeNumberMap(g).get(px.newCode)||px.newCode):px.newCode)+' ditambahkan.':op==='delete'?(isGateRow(a)?'Gateway '+code+' dihapus.':'Aktivitas '+code+' dihapus, alur disambung.'):(px.newGates&&px.newGates.length)?'Gateway baru '+px.newGates.join(', ')+' ditambahkan. Klik dua kali belah ketupatnya untuk mengedit.':'Perubahan struktur tersimpan.');else toast('Perubahan hanya di memori. Export Excel sekarang.',9000);
   }catch(e){const msg=document.createElement('p');msg.id='structError';msg.setAttribute('role','alert');msg.style.cssText='color:#a21d32;font-weight:600;margin:10px 0;';msg.textContent=e.message;$('structSave').parentElement.insertAdjacentElement('beforebegin',msg);toast(e.message,9000);}};
 }
 
@@ -3252,7 +3278,7 @@ function directEditor(code){
   $('detail').dataset.code=code;
   const df=(k,v)=>v?'<dt>'+esc(k)+'</dt><dd>'+esc(v)+'</dd>':'';
   const extra=state.extra[code]||{};
-  $('detail').innerHTML='<button class="tb x" data-a="close" aria-label="Tutup detail">✕</button><div class="ws-panel-title">Detail Aktivitas</div><div class="dcode">'+esc(code)+' · '+(mode==='asis'?'AS-IS':'TO-BE')+'</div><h3>'+esc(rn?rn.text:r.l5)+'</h3><p class="muted">'+(mode==='asis'?'Koreksi proses existing.':'Rancang perbaikan tanpa mengubah AS-IS.')+'</p><div class="ws-detail-fields"><label for="directName">Nama aktivitas</label><textarea id="directName" rows="3">'+esc(rn?rn.text:r.l5)+'</textarea>'+assignmentFields+outFields+'</div><div class="cbtn"><button class="sbtn ws-primary" id="directSave">Simpan '+(mode==='asis'?'koreksi':'usulan')+'</button><button class="sbtn" id="directCancel">Batal</button></div><div class="ws-section"><details><summary>Informasi aktivitas</summary><dl>'+df('Uraian',r.desc)+df('Jabatan',r.posX)+df('Unit',r.unitX)+df('Role keputusan',r.decisionRole)+df('Input',r.inputX)+df('Output',r.outputX)+df('Dokumen',r.docX)+df('Sistem/Aplikasi',r.systemX)+df('Proses sebelum',r.prev)+df('Proses sesudah',r.next)+df('SLA',extra.sla)+df('Dokumen / output',extra.out)+df('Catatan',extra.note||r.note)+df('Pihak pemberi input',r.inParty)+df('Pihak penerima output',r.outParty)+df('Decision Ref',r.dec)+df('Catatan peran',r.noteRole)+df('Dasar antarmuka',r.iface)+'</dl><button class="sbtn" id="workspaceNotes">Tambah / edit dokumen & SLA</button></details></div><div class="ws-section"><strong class="ws-section-title">Ubah alur proses</strong><div class="ws-detail-actions"><button class="sbtn" id="structAdd">＋ Tambah aktivitas (sebelum / sesudah / di cabang)</button><button class="sbtn" id="structMove">↕ Pindahkan urutan aktivitas</button><button class="sbtn" id="structConn">→ Ubah aktivitas berikutnya</button><button class="sbtn" id="structDecision">◇ Tambahkan / edit keputusan</button><button class="sbtn no" id="structDel">Hapus aktivitas</button></div></div>';
+  $('detail').innerHTML='<button class="tb x" data-a="close" aria-label="Tutup detail">✕</button><div class="ws-panel-title">Detail Aktivitas</div><div class="dcode">'+esc(mode==='asis'?code:dispNo(code))+' · '+(mode==='asis'?'AS-IS':'TO-BE')+(mode!=='asis'&&dispNo(code)!==code?' <span title="Kode internal (tetap, dipakai untuk riwayat dan perbandingan)">· id '+esc(code)+'</span>':'')+'</div><h3>'+esc(rn?rn.text:r.l5)+'</h3><p class="muted">'+(mode==='asis'?'Koreksi proses existing.':'Rancang perbaikan tanpa mengubah AS-IS.')+'</p><div class="ws-detail-fields"><label for="directName">Nama aktivitas</label><textarea id="directName" rows="3">'+esc(rn?rn.text:r.l5)+'</textarea>'+assignmentFields+outFields+'</div><div class="cbtn"><button class="sbtn ws-primary" id="directSave">Simpan '+(mode==='asis'?'koreksi':'usulan')+'</button><button class="sbtn" id="directCancel">Batal</button></div><div class="ws-section"><details><summary>Informasi aktivitas</summary><dl>'+df('Uraian',r.desc)+df('Jabatan',r.posX)+df('Unit',r.unitX)+df('Role keputusan',r.decisionRole)+df('Input',r.inputX)+df('Output',r.outputX)+df('Dokumen',r.docX)+df('Sistem/Aplikasi',r.systemX)+df('Proses sebelum',r.prev)+df('Proses sesudah',r.next)+df('SLA',extra.sla)+df('Dokumen / output',extra.out)+df('Catatan',extra.note||r.note)+df('Pihak pemberi input',r.inParty)+df('Pihak penerima output',r.outParty)+df('Decision Ref',r.dec)+df('Catatan peran',r.noteRole)+df('Dasar antarmuka',r.iface)+'</dl><button class="sbtn" id="workspaceNotes">Tambah / edit dokumen & SLA</button></details></div><div class="ws-section"><strong class="ws-section-title">Ubah alur proses</strong><div class="ws-detail-actions"><button class="sbtn" id="structAdd">＋ Tambah aktivitas (sebelum / sesudah / di cabang)</button><button class="sbtn" id="structMove">↕ Pindahkan urutan aktivitas</button><button class="sbtn" id="structConn">→ Ubah aktivitas berikutnya</button><button class="sbtn" id="structDecision">◇ Tambahkan / edit keputusan</button><button class="sbtn no" id="structDel">Hapus aktivitas</button></div></div>';
   $('detail').insertAdjacentHTML('beforeend',annotationSection(g,code,mode));
   $('workspaceNotes').onclick=()=>openExtra(code);
   mountDocsSection(code);

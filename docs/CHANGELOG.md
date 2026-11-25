@@ -1,5 +1,11 @@
 # Changelog Flowchart BPA
 
+## v1.10.1 — Nomor TO-BE runut & Catatan untuk aktivitas baru (2026-11-25)
+- Mode TO-BE: nomor aktivitas yang tampil (badge flowchart, panel detail, Catatan, toast) mengikuti urutan alur. Aktivitas yang disisipkan setelah 07.02.01 tampil sebagai 07.02.02 dan nomor berikutnya bergeser; gateway <aktivitas>-G1. Penomoran sama dengan sheet "SOP TO-BE" di Master Workbook.
+- Kode internal tetap (mis. 07.02.11), ditampilkan kecil sebagai "id" di panel detail, agar perbandingan AS-IS vs TO-BE, SLA/catatan, dan riwayat tidak rusak. AS-IS tidak dinomori ulang.
+- Catatan (SLA/dokumen/catatan): di luar mode AS-IS, daftar diambil dari rancangan TO-BE sehingga aktivitas yang ditambahkan di aplikasi ikut muncul. Isian pada aktivitas AS-IS yang dihapus di TO-BE tetap terlihat dengan tanda "(tidak ada di TO-BE)".
+- Sheet "SLA & Output": nama aktivitas untuk aktivitas baru TO-BE kini terisi.
+
 ## v1.10.0 — Hapus proyek cloud (2026-11-25)
 - Daftar "Proyek tim" di panel ☁ Cloud punya tombol **Hapus** per proyek. Konfirmasi dengan mengetik nama proyek persis.
 - Menghapus permanen: riwayat versi dan log simpan proyek itu ikut terhapus. Bila proyek yang dihapus sedang aktif, data di browser tetap ada tetapi dilepas dari cloud.
