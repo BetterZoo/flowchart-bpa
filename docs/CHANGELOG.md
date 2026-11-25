@@ -1,5 +1,13 @@
 # Changelog Flowchart BPA
 
+## v1.11.0 — Gabungkan proyek cloud (2026-11-25)
+- Panel Cloud → "⇄ Gabungkan proyek…": pilih 2 proyek atau lebih → Bandingkan → tinjau → "Buat proyek gabungan". Hasilnya proyek cloud BARU; proyek asal tidak diubah. Versi 1 proyek baru mencatat sumbernya ("Hasil gabungan: …").
+- Perbandingan per bagian kecil: data AS-IS per L4, rancangan TO-BE per L4, SLA/output/catatan per aktivitas, pemetaan jabatan/unit/keputusan/mode lane per L4, pengaturan peran, analisis dan register per entri. Nomor kode terpakai digabung semua.
+- Aturan default: bagian yang sama → diambil. Bagian yang berbeda → hanya nilai yang benar-benar diubah (berbeda dari snapshot awal proyek) yang dipertimbangkan; bila diubah di beberapa proyek, diambil yang log simpannya (project_saves) paling baru untuk bagian itu. Bila tidak ada log, dipakai waktu simpan terakhir proyek.
+- SLA/catatan untuk aktivitas baru TO-BE ikut proyek yang rancangan TO-BE L4-nya dipakai.
+- Pratinjau menampilkan "Perlu perhatian" (diubah di lebih dari satu proyek) dan "Diambil otomatis"; setiap pilihan bisa diganti lewat dropdown.
+- Ketepatan waktu per bagian mengikuti log simpan per jenis data (mis. "SLA/Output"), bukan per aktivitas.
+
 ## v1.10.1 — Nomor TO-BE runut & Catatan untuk aktivitas baru (2026-11-25)
 - Mode TO-BE: nomor aktivitas yang tampil (badge flowchart, panel detail, Catatan, toast) mengikuti urutan alur. Aktivitas yang disisipkan setelah 07.02.01 tampil sebagai 07.02.02 dan nomor berikutnya bergeser; gateway <aktivitas>-G1. Penomoran sama dengan sheet "SOP TO-BE" di Master Workbook.
 - Kode internal tetap (mis. 07.02.11), ditampilkan kecil sebagai "id" di panel detail, agar perbandingan AS-IS vs TO-BE, SLA/catatan, dan riwayat tidak rusak. AS-IS tidak dinomori ulang.

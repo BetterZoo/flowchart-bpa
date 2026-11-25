@@ -157,6 +157,7 @@ async function cloudPanel(){
   else if(!list.length) h += P('Belum ada proyek di cloud.');
   else h += '<div>'+list.map(p=>'<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border-top:1px solid var(--line,#e5e7eb);padding:8px 0"><div style="min-width:0"><div style="font-weight:600">'+esc(p.name)+(cloudProj&&cloudProj.id===p.id?' <span style="font-size:11px;color:#0a7d32">(aktif)</span>':'')+'</div><div style="font-size:12px;color:#64748b">'+esc(cloudTime(p.updated_at))+' · '+esc(p.updated_by||'')+(p.file_name?' · '+esc(p.file_name):'')+'</div></div>'+
     '<div style="display:flex;gap:6px;flex:none">'+(cloudProj&&cloudProj.id===p.id?'':'<button class="btn" data-c="open" data-id="'+esc(p.id)+'">Buka</button>')+'<button class="btn" data-c="rename" data-id="'+esc(p.id)+'" data-name="'+esc(p.name)+'">Ganti nama</button><button class="btn" data-c="delete" data-id="'+esc(p.id)+'" data-name="'+esc(p.name)+'" style="color:#a21d32" title="Hapus proyek ini dari cloud beserta seluruh riwayatnya">Hapus</button></div></div>').join('')+'</div>';
+  if(!error && list.length >= 2) h += '<div class="row" style="justify-content:flex-start;margin-top:8px"><button class="btn" data-c="merge" title="Gabungkan beberapa proyek menjadi satu proyek baru">⇄ Gabungkan proyek…</button></div>';
   h += '<div class="row"><button class="btn" data-c="close">Tutup</button></div>';
   cloudShow(h);
   const ck = $('cloudAutoCk'); if(ck) ck.onchange = () => { store.set(CLOUD_AUTO_KEY, ck.checked?'1':'0'); toast(ck.checked?'Simpan otomatis aktif.':'Simpan otomatis dimatikan. Pakai "Simpan sekarang".'); };
@@ -229,6 +230,9 @@ async function cloudClick(e){
   if(a==='open'){ cloudOpen(b.dataset.id); return; }
   if(a==='rename'){ const nm = (window.prompt ? prompt('Nama baru proyek:', b.dataset.name) : null); if(!nm || !nm.trim()) return; const { error } = await c.from('projects').update({name:nm.trim()}).eq('id', b.dataset.id); if(error) toast('Gagal ganti nama: '+error.message); else { if(cloudProj && cloudProj.id===b.dataset.id){ cloudProj.name = nm.trim(); store.set(CLOUD_PROJ_KEY, JSON.stringify(cloudProj)); cloudSetState(cloudState); } cloudPanel(); } return; }
   if(a==='delete'){ await cloudDelete(b.dataset.id, b.dataset.name); return; }
+  if(a==='merge'){ cloudMergeStart(); return; }
+  if(a==='mergeDiff'){ b.disabled = true; try{ await cloudMergeDiff(); } finally { b.disabled = false; } return; }
+  if(a==='mergeCreate'){ b.disabled = true; try{ await cloudMergeCreate(); } finally { if(b.isConnected) b.disabled = false; } return; }
   if(a==='detach'){ cloudDetach(); return; }
   if(a==='history'){ cloudHistory(); return; }
   if(a==='back'||a==='recheck'){ cloudPanel(); return; }
@@ -257,3 +261,174 @@ async function cloudClick(e){
   setInterval(() => { if(cloudProj && cloudUser && cloudMember && cloudAuto() && !cloudBusy && cloudState!=='ada versi lebih baru' && document.visibilityState!=='hidden') cloudSave(false); }, 8000);
   window.addEventListener('beforeunload', e => { if(!window.__cloudLeaving && cloudProj && cloudUser && cloudDirty()){ e.preventDefault(); e.returnValue = ''; } });
 })();
+
+/* ================= v1.11.0: Gabungkan (merge) beberapa proyek cloud menjadi proyek baru =================
+   Each project snapshot is split into small units (one L4's AS-IS rows, one L4's TO-BE draft, one activity's
+   SLA/notes, one lane mapping, …). Per unit:
+   - all projects equal → taken as is;
+   - a project "changed" the unit when its value is not found in any selected project's oldest snapshot
+     (the copy everyone started from). Only changed values compete; if none changed, all compete;
+   - the winner is the project whose LOG (project_saves) shows the latest save touching that part
+     (fallback: the project's last save time). Every choice can be overridden in the preview.
+   The source projects are never modified. */
+let cloudMergeCtx = null;
+const CLOUD_MERGE_PART = {data:'Data AS-IS', elab:'Rancangan TO-BE', extra:'SLA/Output', roles:'Peran', posmap:'Pemetaan jabatan', decmap:'Keputusan', unitmap:'Unit kerja', lanemodes:'Mode swimlane', poson:'Tampilan jabatan', analysis:'Analisis', changeRegister:'Register perubahan', sem:'Jenis simbol BPMN', other:'Lainnya'};
+function cloudMergeParse(v){ try{ return JSON.parse(v); }catch(e){ return null; } }
+// snapshot → Map(unitKey → JSON string or null) plus helpers for rebuilding
+function cloudMergeSplit(snap){
+  const U = new Map(), J = v => JSON.stringify(v); snap = snap || {};
+  for(const [k, raw] of Object.entries(snap)){
+    if(k.startsWith('bpa_bpmn_semantics_')){ const o = cloudMergeParse(raw) || {}; for(const [ik, iv] of Object.entries(o)) U.set('sem|'+ik, J(iv)); continue; }
+    if(!k.startsWith('flowbpa:')){ U.set('other|'+k, J(raw)); continue; }
+    const part = k.slice(8), v = cloudMergeParse(raw);
+    if(part === 'usedCodes') continue; // union, handled separately
+    if(part === 'data' && v && Array.isArray(v.rows)){
+      const by = new Map(); for(const r of v.rows){ const l4 = String(r.l4no||''); if(!by.has(l4)) by.set(l4, []); by.get(l4).push(r); }
+      for(const [l4, rows] of by) U.set('data|'+l4, J(rows));
+      for(const [dk, dv] of Object.entries(v)) if(dk !== 'rows') U.set('datameta|'+dk, J(dv));
+    } else if(part === 'roles' && v && typeof v === 'object'){
+      for(const [sk, sv] of Object.entries(v)) for(const [ik, iv] of Object.entries(sv||{})) U.set('roles|'+sk+'|'+ik, J(iv));
+    } else if((part === 'analysis' || part === 'changeRegister') && Array.isArray(v)){
+      v.forEach((r, i) => U.set(part+'|'+(r && r.id ? r.id : '#'+i), J(r)));
+    } else if(v && typeof v === 'object' && !Array.isArray(v)){
+      for(const [ik, iv] of Object.entries(v)) U.set(part+'|'+ik, J(iv));
+    } else U.set(part+'|', J(v === null ? raw : v));
+  }
+  return U;
+}
+function cloudMergeJoin(units, used, semKey, order){
+  const P = s => cloudMergeParse(s), out = {}, obj = {}, data = {meta:{}, by:new Map()}, roles = {alias:{}, added:{}, hidden:{}, order:{}}, lists = {analysis:[], changeRegister:[]}, sem = {};
+  for(const [key, val] of units){ if(val == null) continue;
+    const [part, ...rest] = key.split('|'), k1 = rest.join('|');
+    if(part === 'data') data.by.set(k1, P(val));
+    else if(part === 'datameta') data.meta[k1] = P(val);
+    else if(part === 'roles'){ const [sk, ...ik] = rest; (roles[sk] = roles[sk] || {})[ik.join('|')] = P(val); }
+    else if(part === 'analysis' || part === 'changeRegister') lists[part].push(P(val));
+    else if(part === 'sem') sem[k1] = P(val);
+    else if(part === 'other') out[k1] = P(val);
+    else if(k1 === '' ) out['flowbpa:'+part] = typeof P(val) === 'string' ? P(val) : JSON.stringify(P(val));
+    else (obj[part] = obj[part] || {})[k1] = P(val);
+  }
+  const l4s = [...data.by.keys()].sort((a,b)=>{ const ia = order.indexOf(a), ib = order.indexOf(b); return (ia<0?1e9:ia)-(ib<0?1e9:ib) || (typeof cmpCode==='function' ? cmpCode(a,b) : a.localeCompare(b)); });
+  out['flowbpa:data'] = JSON.stringify({...data.meta, rows: l4s.flatMap(l4 => data.by.get(l4))});
+  for(const [part, o] of Object.entries(obj)) out['flowbpa:'+part] = JSON.stringify(o);
+  out['flowbpa:roles'] = JSON.stringify(roles);
+  out['flowbpa:analysis'] = JSON.stringify(lists.analysis); out['flowbpa:changeRegister'] = JSON.stringify(lists.changeRegister);
+  out['flowbpa:usedCodes'] = JSON.stringify([...used].sort());
+  if(semKey) out[semKey] = JSON.stringify(sem);
+  return out;
+}
+function cloudMergeLabel(key, names){
+  const [part, ...rest] = key.split('|'), k = rest.join('|'), P = CLOUD_MERGE_PART[part] || part;
+  if(part === 'data' || part === 'elab' || part === 'posmap' || part === 'unitmap' || part === 'decmap' || part === 'lanemodes'){ const n = names.get(k); return P+' '+k+(n?' — '+n:''); }
+  if(part === 'extra') return P+' '+k+(names.get(k)?' — '+names.get(k):'');
+  if(part === 'roles') return P+' ('+rest[0]+') '+rest.slice(1).join('|')+(names.get(rest.slice(1).join('|'))?' — '+names.get(rest.slice(1).join('|')):'');
+  return P+(k?' '+k:'');
+}
+function cloudMergeLogPart(key){ const p = key.split('|')[0]; return p === 'datameta' ? 'data' : p === 'sem' ? 'bpa_bpmn_semantics' : p; }
+async function cloudMergeLoad(ids){
+  const c = cloudClient(), docs = [];
+  for(const id of ids){
+    const { data:p, error } = await c.from('projects').select('id,name,version,data,updated_at,updated_by').eq('id', id).single();
+    if(error || !p) throw Error('Gagal memuat proyek: '+((error&&error.message)||id));
+    let base = null; try{ const r = await c.from('project_versions').select('version,data,saved_at').eq('project_id', id).order('id', {ascending:true}).limit(1); base = r.data && r.data[0] ? r.data[0] : null; }catch(e){}
+    let log = []; try{ const r = await c.from('project_saves').select('saved_at,changed').eq('project_id', id).order('id', {ascending:false}).limit(500); log = (!r.error && r.data) || []; }catch(e){}
+    docs.push({id:p.id, name:p.name, version:p.version, updated_at:p.updated_at, updated_by:p.updated_by, snap:p.data, units:cloudMergeSplit(p.data), base:base ? cloudMergeSplit(base.data) : null, baseVer:base ? base.version : null, log});
+  }
+  return docs;
+}
+// last time (ms) this project's log shows a save touching the part; falls back to the project's last save
+function cloudMergeTime(doc, part){
+  let t = 0; for(const s of doc.log) if((s.changed||[]).some(x => x === part || (part === 'bpa_bpmn_semantics' && /^bpa_bpmn_semantics/.test(x)))){ const v = Date.parse(s.saved_at); if(v > t) t = v; }
+  return t || Date.parse(doc.updated_at) || 0;
+}
+function cloudMergePlan(docs){
+  const keys = new Set(); docs.forEach(d => d.units.forEach((_, k) => keys.add(k)));
+  const baseVals = new Map(); for(const d of docs) if(d.base) d.base.forEach((v, k) => { if(!baseVals.has(k)) baseVals.set(k, new Set()); baseVals.get(k).add(v); });
+  const units = [];
+  for(const key of keys){
+    const vals = docs.map(d => d.units.has(key) ? d.units.get(key) : null);
+    if(vals.every(v => v === vals[0])){ units.push({key, vals, pick:0, same:true}); continue; }
+    const bv = baseVals.get(key) || new Set(), hasBase = docs.some(d => d.base);
+    const changed = vals.map(v => hasBase && !bv.has(v === null ? undefined : v) && !(v === null && !bv.size));
+    const part = cloudMergeLogPart(key), times = docs.map(d => cloudMergeTime(d, part));
+    let cand = docs.map((_, i) => i).filter(i => changed[i]); if(!cand.length) cand = docs.map((_, i) => i);
+    const pick = cand.reduce((a, b) => times[b] > times[a] ? b : a);
+    const distinctChanged = new Set(cand.filter(i => changed[i]).map(i => vals[i])).size;
+    units.push({key, vals, pick, changed, times, conflict: distinctChanged > 1 || (!changed.some(Boolean))});
+  }
+  return units;
+}
+// TO-BE-only activity codes: SLA/notes follow the project whose TO-BE draft of that L4 was taken
+function cloudMergeAlign(plan){
+  const byKey = new Map(plan.map(u => [u.key, u]));
+  for(const u of plan){ if(u.same || !u.key.startsWith('extra|') || u.touched) continue;
+    const code = u.key.slice(6), l4 = code.split('.').slice(0, -1).join('.'), asis = byKey.get('data|'+l4), el = byKey.get('elab|'+l4);
+    const inAsis = asis && asis.vals[asis.pick] && asis.vals[asis.pick].includes('"l5no":"'+code+'"');
+    if(!inAsis && el && !el.same && u.vals[el.pick] != null) u.pick = el.pick;
+  }
+}
+function cloudMergeNames(docs){
+  const names = new Map();
+  for(const d of docs){ try{ const rows = JSON.parse(d.snap['flowbpa:data']).rows; for(const r of rows){ if(r.l4no && !names.has(r.l4no)) names.set(r.l4no, r.l4); if(r.l5no && !names.has(r.l5no)) names.set(r.l5no, r.l5); } }catch(e){} }
+  return names;
+}
+async function cloudMergeStart(){
+  const c = cloudClient(); const { data:list, error } = await c.from('projects').select('id,name,version,updated_at,updated_by').order('updated_at', {ascending:false});
+  if(error){ toast('Gagal memuat daftar: '+error.message, 7000); return; }
+  cloudShow('<h3>Gabungkan proyek</h3><p style="font-size:13px;line-height:1.5;color:#334155">Pilih 2 proyek atau lebih. Hasilnya proyek <b>baru</b>; proyek asal tidak diubah. Bagian yang berbeda diambil dari perubahan terbaru menurut log simpan, dan bisa lw ubah sebelum dibuat.</p>'+
+    list.map(p => '<label style="display:flex;gap:8px;align-items:flex-start;border-top:1px solid var(--line,#e5e7eb);padding:7px 0;font-size:13.5px"><input type="checkbox" class="cmSel" value="'+esc(p.id)+'" style="margin-top:3px"><span><b>'+esc(p.name)+'</b><br><span style="font-size:12px;color:#64748b">v'+p.version+' · '+esc(cloudTime(p.updated_at))+' · '+esc(cloudUserName(p.updated_by))+'</span></span></label>').join('')+
+    '<div id="cloudMsg" style="font-size:13px;margin-top:8px"></div><div class="row"><button class="btn" data-c="back">Kembali</button><button class="btn primary" data-c="mergeDiff">Bandingkan</button></div>');
+}
+async function cloudMergeDiff(){
+  const ids = [...document.querySelectorAll('.cmSel:checked')].map(x => x.value);
+  if(ids.length < 2){ $('cloudMsg').textContent = 'Pilih minimal 2 proyek.'; return; }
+  $('cloudMsg').textContent = 'Memuat dan membandingkan '+ids.length+' proyek…';
+  let docs; try{ docs = await cloudMergeLoad(ids); }catch(e){ $('cloudMsg').textContent = e.message; return; }
+  const plan = cloudMergePlan(docs); cloudMergeAlign(plan);
+  cloudMergeCtx = {docs, plan, names:cloudMergeNames(docs)};
+  cloudMergeRender();
+}
+function cloudMergeRender(){
+  const {docs, plan, names} = cloudMergeCtx, D = docs;
+  const diff = plan.filter(u => !u.same), conf = diff.filter(u => u.conflict), auto = diff.filter(u => !u.conflict);
+  const opt = (u, i) => {
+    const v = u.vals[i], tag = v == null ? 'tidak ada' : u.changed[i] ? 'diubah, log '+cloudTime(u.times[i]) : 'sama dengan awal';
+    return '<option value="'+i+'"'+(u.pick === i ? ' selected' : '')+'>'+esc(D[i].name)+' ('+esc(tag)+')</option>';
+  };
+  const row = u => { const ui = plan.indexOf(u); return '<div style="border-top:1px solid var(--line,#e5e7eb);padding:6px 0;font-size:12.5px"><div style="font-weight:600">'+esc(cloudMergeLabel(u.key, names))+'</div><select data-mu="'+ui+'" style="width:100%;font-size:13px;margin-top:3px">'+D.map((_, i) => opt(u, i)).join('')+'</select></div>'; };
+  const sum = {}; for(const u of auto){ const k = D[u.pick].name; sum[k] = (sum[k]||0) + 1; }
+  const defName = 'Gabungan — '+D.map(d => d.name).join(' + ');
+  cloudShow('<h3>Hasil perbandingan</h3>'+
+    '<p style="font-size:13px;line-height:1.5;color:#334155">'+D.length+' proyek, '+plan.length+' bagian dicek: <b>'+(plan.length-diff.length)+'</b> sama, <b>'+auto.length+'</b> berbeda dan hanya diubah di satu proyek (diambil otomatis), <b>'+conf.length+'</b> perlu perhatian (diubah di lebih dari satu proyek; default: log terbaru).</p>'+
+    (D.some(d => !d.base) ? '<p style="font-size:12px;color:#a16207">Sebagian proyek tidak punya snapshot awal; perbandingan memakai waktu log saja.</p>' : '')+
+    '<details open><summary style="font-weight:600;font-size:13px;margin:8px 0">Perlu perhatian ('+conf.length+')</summary>'+(conf.length ? conf.map(row).join('') : '<p style="font-size:12.5px;color:#64748b">Tidak ada.</p>')+'</details>'+
+    '<details><summary style="font-weight:600;font-size:13px;margin:8px 0">Diambil otomatis ('+auto.length+')'+(auto.length?' — '+Object.entries(sum).map(([n, k]) => esc(n)+': '+k).join(', '):'')+'</summary>'+auto.map(row).join('')+'</details>'+
+    '<label for="cmName" style="font-size:13px;display:block;margin-top:12px">Nama proyek baru</label><input id="cmName" style="width:100%;font-size:15px;padding:8px;margin:4px 0 8px;box-sizing:border-box" value="'+esc(defName.slice(0, 120))+'">'+
+    '<div id="cloudMsg" style="font-size:13px"></div><div class="row"><button class="btn" data-c="merge">Kembali</button><button class="btn primary" data-c="mergeCreate">Buat proyek gabungan</button></div>');
+  document.querySelectorAll('[data-mu]').forEach(s => s.onchange = () => { const u = plan[+s.dataset.mu]; u.pick = +s.value; u.touched = true; });
+}
+function cloudMergeBuild(){
+  const {docs, plan} = cloudMergeCtx, units = new Map(), used = new Set();
+  for(const u of plan) units.set(u.key, u.vals[u.pick]);
+  for(const d of docs){ try{ JSON.parse(d.snap['flowbpa:usedCodes']||'[]').forEach(x => used.add(x)); }catch(e){} }
+  // every activity code present in the result stays reserved
+  try{ for(const r of JSON.parse(cloudMergeJoin(units, new Set(), '', []) ['flowbpa:data']).rows) used.add(r.l5no); }catch(e){}
+  const newest = docs.slice().sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))[0];
+  const semKey = Object.keys(newest.snap).find(k => k.startsWith('bpa_bpmn_semantics_')) || docs.map(d => Object.keys(d.snap).find(k => k.startsWith('bpa_bpmn_semantics_'))).find(Boolean) || '';
+  let order = []; try{ order = [...new Set(JSON.parse(newest.snap['flowbpa:data']).rows.map(r => r.l4no))]; }catch(e){}
+  return cloudMergeJoin(units, used, semKey, order);
+}
+async function cloudMergeCreate(){
+  const c = cloudClient(), name = ($('cmName').value||'').trim(); if(!name){ $('cloudMsg').textContent = 'Isi nama proyek baru.'; return; }
+  let snap; try{ snap = cloudMergeBuild(); }catch(e){ $('cloudMsg').textContent = 'Gagal menggabungkan: '+e.message; return; }
+  const n = cloudRowCount(snap); if(!n){ $('cloudMsg').textContent = 'Hasil gabungan kosong; tidak dibuat.'; return; }
+  $('cloudMsg').textContent = 'Menyimpan…';
+  const src = cloudMergeCtx.docs.map(d => d.name+' v'+d.version).join(', ');
+  const fileName = (()=>{ try{ return JSON.parse(snap['flowbpa:data']).fileName || null; }catch(e){ return null; } })();
+  const { data, error } = await c.from('projects').insert({name, data:snap, version:1, file_name:fileName, created_by:cloudUser.email, updated_by:cloudUser.email}).select('id,name,version').single();
+  if(error){ $('cloudMsg').textContent = 'Gagal membuat proyek: '+error.message; return; }
+  await c.from('project_versions').insert({project_id:data.id, version:1, data:snap, note:('Hasil gabungan: '+src).slice(0, 500), saved_by:cloudUser.email});
+  cloudMergeCtx = null;
+  cloudShow('<h3>Proyek gabungan dibuat</h3><p style="font-size:13px;line-height:1.5;color:#334155"><b>'+esc(name)+'</b> berisi '+n+' baris aktivitas, digabung dari: '+esc(src)+'. Proyek asal tidak diubah.</p><div class="row"><button class="btn" data-c="back">Kembali ke daftar</button><button class="btn primary" data-c="open" data-id="'+esc(data.id)+'">Buka proyek gabungan</button></div>');
+}
