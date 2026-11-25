@@ -1,5 +1,9 @@
 # Changelog Flowchart BPA
 
+## v1.11.1 — Perbaikan gabung proyek yang sumbernya hasil gabungan (2026-11-25)
+- Bug: menggabungkan proyek hasil gabungan (mis. "Gabungan — Idur_Dea") dengan proyek lain membuat SLA/catatan dan rancangan TO-BE yang hanya ada di proyek gabungan itu hilang. Penyebab: snapshot awal proyek gabungan sudah berisi semuanya, sehingga isiannya dianggap "tidak diubah", sedangkan proyek lain yang belum punya isian dianggap "menghapus" dengan log lebih baru.
+- Perbaikan: "diubah" kini dinilai terhadap satu leluhur bersama, yaitu snapshot awal tertua di antara proyek yang dipilih.
+
 ## v1.11.0 — Gabungkan proyek cloud (2026-11-25)
 - Panel Cloud → "⇄ Gabungkan proyek…": pilih 2 proyek atau lebih → Bandingkan → tinjau → "Buat proyek gabungan". Hasilnya proyek cloud BARU; proyek asal tidak diubah. Versi 1 proyek baru mencatat sumbernya ("Hasil gabungan: …").
 - Perbandingan per bagian kecil: data AS-IS per L4, rancangan TO-BE per L4, SLA/output/catatan per aktivitas, pemetaan jabatan/unit/keputusan/mode lane per L4, pengaturan peran, analisis dan register per entri. Nomor kode terpakai digabung semua.

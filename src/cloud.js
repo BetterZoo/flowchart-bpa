@@ -266,8 +266,10 @@ async function cloudClick(e){
    Each project snapshot is split into small units (one L4's AS-IS rows, one L4's TO-BE draft, one activity's
    SLA/notes, one lane mapping, …). Per unit:
    - all projects equal → taken as is;
-   - a project "changed" the unit when its value is not found in any selected project's oldest snapshot
-     (the copy everyone started from). Only changed values compete; if none changed, all compete;
+   - a project "changed" the unit when its value differs from the COMMON ANCESTOR: the oldest first snapshot
+     among the selected projects (v1.11.1; before, any project's first snapshot counted, so a merged project —
+     whose first snapshot already holds everything — made other projects' "nothing here" look like a deletion).
+     Absent counts as a value. Only changed values compete; if none changed, all compete;
    - the winner is the project whose LOG (project_saves) shows the latest save touching that part
      (fallback: the project's last save time). Every choice can be overridden in the preview.
    The source projects are never modified. */
@@ -333,7 +335,7 @@ async function cloudMergeLoad(ids){
     if(error || !p) throw Error('Gagal memuat proyek: '+((error&&error.message)||id));
     let base = null; try{ const r = await c.from('project_versions').select('version,data,saved_at').eq('project_id', id).order('id', {ascending:true}).limit(1); base = r.data && r.data[0] ? r.data[0] : null; }catch(e){}
     let log = []; try{ const r = await c.from('project_saves').select('saved_at,changed').eq('project_id', id).order('id', {ascending:false}).limit(500); log = (!r.error && r.data) || []; }catch(e){}
-    docs.push({id:p.id, name:p.name, version:p.version, updated_at:p.updated_at, updated_by:p.updated_by, snap:p.data, units:cloudMergeSplit(p.data), base:base ? cloudMergeSplit(base.data) : null, baseVer:base ? base.version : null, log});
+    docs.push({id:p.id, name:p.name, version:p.version, updated_at:p.updated_at, updated_by:p.updated_by, snap:p.data, units:cloudMergeSplit(p.data), base:base ? cloudMergeSplit(base.data) : null, baseVer:base ? base.version : null, baseAt:base ? Date.parse(base.saved_at) || 0 : 0, log});
   }
   return docs;
 }
@@ -344,13 +346,13 @@ function cloudMergeTime(doc, part){
 }
 function cloudMergePlan(docs){
   const keys = new Set(); docs.forEach(d => d.units.forEach((_, k) => keys.add(k)));
-  const baseVals = new Map(); for(const d of docs) if(d.base) d.base.forEach((v, k) => { if(!baseVals.has(k)) baseVals.set(k, new Set()); baseVals.get(k).add(v); });
+  const anc = docs.filter(d => d.base).sort((a, b) => a.baseAt - b.baseAt)[0] || null;
   const units = [];
   for(const key of keys){
     const vals = docs.map(d => d.units.has(key) ? d.units.get(key) : null);
     if(vals.every(v => v === vals[0])){ units.push({key, vals, pick:0, same:true}); continue; }
-    const bv = baseVals.get(key) || new Set(), hasBase = docs.some(d => d.base);
-    const changed = vals.map(v => hasBase && !bv.has(v === null ? undefined : v) && !(v === null && !bv.size));
+    const av = anc ? (anc.base.has(key) ? anc.base.get(key) : null) : undefined;
+    const changed = vals.map(v => anc ? v !== av : false);
     const part = cloudMergeLogPart(key), times = docs.map(d => cloudMergeTime(d, part));
     let cand = docs.map((_, i) => i).filter(i => changed[i]); if(!cand.length) cand = docs.map((_, i) => i);
     const pick = cand.reduce((a, b) => times[b] > times[a] ? b : a);
