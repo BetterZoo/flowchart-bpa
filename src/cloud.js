@@ -101,6 +101,19 @@ async function cloudNew(name){
   cloudSetState('tersimpan'); toast('Proyek "'+name+'" tersimpan di cloud. Perubahan berikutnya tersimpan otomatis.', 5000); cloudPanel();
 }
 function cloudDetach(){ if(cloudDirty() && !confirm('Ada perubahan yang belum tersimpan ke cloud. Tetap lepaskan?')) return; cloudProj = null; cloudHash = ''; cloudRows = 0; try{ localStorage.removeItem(CLOUD_PROJ_KEY); }catch(e){} cloudSetState(''); cloudPanel(); toast('Proyek dilepas dari cloud. Data tetap ada di browser ini.'); }
+// v1.10.0: delete a team project (and, by cascade, its history and save log). Typed-name confirmation.
+async function cloudDelete(id, name){
+  const c = cloudClient(); if(!c) return;
+  const active = cloudProj && cloudProj.id === id;
+  const typed = window.prompt ? prompt('HAPUS PERMANEN proyek "'+name+'" dari cloud?\n\nSeluruh riwayat versi dan log simpannya ikut terhapus dan tidak bisa dikembalikan.'+(active?' Data di browser ini tetap ada, tetapi tidak lagi terhubung ke cloud.':'')+'\n\nKetik nama proyek persis untuk mengonfirmasi:', '') : null;
+  if(typed === null) return;
+  if(typed.trim() !== String(name).trim()){ toast('Nama tidak cocok. Proyek tidak dihapus.', 5000); return; }
+  const { data, error } = await c.from('projects').delete().eq('id', id).select('id');
+  if(error){ toast('Gagal menghapus: '+error.message, 8000); return; }
+  if(!data || !data.length){ toast('Proyek tidak terhapus (tidak ditemukan atau tidak ada akses).', 7000); return; }
+  if(active){ cloudProj = null; cloudHash = ''; cloudRows = 0; try{ localStorage.removeItem(CLOUD_PROJ_KEY); }catch(e){} cloudSetState(''); }
+  toast('Proyek "'+name+'" dihapus dari cloud.', 5000); cloudPanel();
+}
 function cloudShow(html){
   let m = $('cloudDlg');
   if(!m){ m = document.createElement('div'); m.className = 'modal hidden'; m.id = 'cloudDlg'; m.setAttribute('role','dialog'); m.innerHTML = '<div class="dlg" style="max-width:640px;width:min(640px,94vw);max-height:86vh;overflow:auto"></div>'; document.body.appendChild(m);
@@ -143,7 +156,7 @@ async function cloudPanel(){
   if(error) h += P('Gagal memuat daftar: '+esc(error.message));
   else if(!list.length) h += P('Belum ada proyek di cloud.');
   else h += '<div>'+list.map(p=>'<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border-top:1px solid var(--line,#e5e7eb);padding:8px 0"><div style="min-width:0"><div style="font-weight:600">'+esc(p.name)+(cloudProj&&cloudProj.id===p.id?' <span style="font-size:11px;color:#0a7d32">(aktif)</span>':'')+'</div><div style="font-size:12px;color:#64748b">'+esc(cloudTime(p.updated_at))+' · '+esc(p.updated_by||'')+(p.file_name?' · '+esc(p.file_name):'')+'</div></div>'+
-    '<div style="display:flex;gap:6px;flex:none">'+(cloudProj&&cloudProj.id===p.id?'':'<button class="btn" data-c="open" data-id="'+esc(p.id)+'">Buka</button>')+'<button class="btn" data-c="rename" data-id="'+esc(p.id)+'" data-name="'+esc(p.name)+'">Ganti nama</button></div></div>').join('')+'</div>';
+    '<div style="display:flex;gap:6px;flex:none">'+(cloudProj&&cloudProj.id===p.id?'':'<button class="btn" data-c="open" data-id="'+esc(p.id)+'">Buka</button>')+'<button class="btn" data-c="rename" data-id="'+esc(p.id)+'" data-name="'+esc(p.name)+'">Ganti nama</button><button class="btn" data-c="delete" data-id="'+esc(p.id)+'" data-name="'+esc(p.name)+'" style="color:#a21d32" title="Hapus proyek ini dari cloud beserta seluruh riwayatnya">Hapus</button></div></div>').join('')+'</div>';
   h += '<div class="row"><button class="btn" data-c="close">Tutup</button></div>';
   cloudShow(h);
   const ck = $('cloudAutoCk'); if(ck) ck.onchange = () => { store.set(CLOUD_AUTO_KEY, ck.checked?'1':'0'); toast(ck.checked?'Simpan otomatis aktif.':'Simpan otomatis dimatikan. Pakai "Simpan sekarang".'); };
@@ -215,6 +228,7 @@ async function cloudClick(e){
   if(a==='save'){ const ok = await cloudSave(true); if(ok) toast('Tersimpan ke cloud.'); cloudPanel(); return; }
   if(a==='open'){ cloudOpen(b.dataset.id); return; }
   if(a==='rename'){ const nm = (window.prompt ? prompt('Nama baru proyek:', b.dataset.name) : null); if(!nm || !nm.trim()) return; const { error } = await c.from('projects').update({name:nm.trim()}).eq('id', b.dataset.id); if(error) toast('Gagal ganti nama: '+error.message); else { if(cloudProj && cloudProj.id===b.dataset.id){ cloudProj.name = nm.trim(); store.set(CLOUD_PROJ_KEY, JSON.stringify(cloudProj)); cloudSetState(cloudState); } cloudPanel(); } return; }
+  if(a==='delete'){ await cloudDelete(b.dataset.id, b.dataset.name); return; }
   if(a==='detach'){ cloudDetach(); return; }
   if(a==='history'){ cloudHistory(); return; }
   if(a==='back'||a==='recheck'){ cloudPanel(); return; }

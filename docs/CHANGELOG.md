@@ -1,5 +1,9 @@
 # Changelog Flowchart BPA
 
+## v1.10.0 — Hapus proyek cloud (2026-11-25)
+- Daftar "Proyek tim" di panel ☁ Cloud punya tombol **Hapus** per proyek. Konfirmasi dengan mengetik nama proyek persis.
+- Menghapus permanen: riwayat versi dan log simpan proyek itu ikut terhapus. Bila proyek yang dihapus sedang aktif, data di browser tetap ada tetapi dilepas dari cloud.
+
 ## v1.9.9 — Versi saat ini di Riwayat (2026-11-25)
 - Riwayat versi menampilkan baris "Versi N · saat ini" di paling atas bila isi proyek sekarang belum punya snapshot sendiri (mis. disimpan kurang dari 15 menit setelah snapshot terakhir).
 
