@@ -1,5 +1,11 @@
 # Changelog Flowchart BPA
 
+## v1.9.8 — Log simpan di Riwayat (2026-11-25)
+- Riwayat versi kini juga menampilkan **Log simpan**: setiap simpan (otomatis/manual) dengan versi, waktu, siapa, dan bagian yang berubah (mis. Rancangan TO-BE, Mode swimlane). Sebelumnya hanya snapshot tiap ±15 menit yang terlihat, sehingga simpanan di antaranya tampak tidak tercatat dan snapshot berikutnya tercatat atas nama orang yang kebetulan menyimpan.
+- Database: bila penyunting berganti, versi terakhir penyunting sebelumnya otomatis disimpan ke Riwayat (bisa dipulihkan).
+- Perlu dijalankan sekali: docs/supabase_save_log.sql. Tanpa itu aplikasi tetap jalan, hanya Log simpan tidak muncul.
+- Nama pengguna ditampilkan tanpa @flowbpa.local.
+
 ## v1.9.7 — Login username + password, pengaman simpan cloud (2026-11-25)
 - Login cloud memakai username + password (tidak lagi link via email, jadi tidak kena batas kirim email Supabase). Username `dea` = akun `dea@flowbpa.local` di Supabase; mengetik alamat email lengkap juga bisa.
 - Panel Cloud: tautan "Ganti password" (minimal 8 karakter).

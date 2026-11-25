@@ -11,6 +11,8 @@ let sbc = null, cloudUser = null, cloudMember = false, cloudMemberErr = '', clou
 function cloudLib(){ return window.__sbMock || window.supabase || null; }
 function cloudLoginEmail(u){ u = String(u||'').trim().toLowerCase(); return u.includes('@') ? u : u + '@' + CLOUD_USER_DOMAIN; }
 function cloudUserName(email){ email = String(email||''); return email.endsWith('@'+CLOUD_USER_DOMAIN) ? email.slice(0, -CLOUD_USER_DOMAIN.length-1) : email; }
+const CLOUD_PART_NAMES = {data:'Data AS-IS', elab:'Rancangan TO-BE', extra:'SLA/Output', roles:'Peran', posmap:'Pemetaan jabatan', decmap:'Keputusan', unitmap:'Unit kerja', lanemodes:'Mode swimlane', poson:'Tampilan jabatan', usedCodes:'Nomor kode', analysis:'Analisis', changeRegister:'Register perubahan'};
+function cloudPartNames(arr){ arr = arr || []; return arr.length ? arr.map(k => CLOUD_PART_NAMES[k] || (/^bpa_bpmn_semantics/.test(k) ? 'Jenis simbol BPMN' : k)).filter((v,i,a)=>a.indexOf(v)===i).join(', ') : '(tidak ada isi berubah)'; }
 // v1.9.7: number of activity rows in a snapshot; used to refuse saving an empty/shrunken browser state over the cloud copy
 function cloudRowCount(snap){ try{ const d = JSON.parse((snap||{})['flowbpa:data']||'null'); return d && Array.isArray(d.rows) ? d.rows.length : 0; }catch(e){ return 0; } }
 function cloudClient(){
@@ -151,7 +153,17 @@ async function cloudHistory(){
   const { data, error } = await c.from('project_versions').select('id,version,note,saved_by,saved_at').eq('project_id', cloudProj.id).order('id', {ascending:false}).limit(30);
   let h = '<h3>Riwayat versi · '+esc(cloudProj.name)+'</h3><p style="font-size:13px;color:#334155">Disimpan saat Simpan manual, saat proyek dibuat, dan otomatis paling sering tiap 15 menit. 30 versi terakhir dipertahankan.</p>';
   if(error) h += '<p>Gagal memuat: '+esc(error.message)+'</p>';
-  else h += (data||[]).map(v=>'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid var(--line,#e5e7eb);padding:8px 0"><div><div style="font-weight:600">Versi '+v.version+' · '+esc(cloudTime(v.saved_at))+'</div><div style="font-size:12px;color:#64748b">'+esc(v.saved_by||'')+' · '+esc(v.note||'')+'</div></div><button class="btn" data-c="restore" data-id="'+v.id+'">Pulihkan</button></div>').join('') || '<p>Belum ada riwayat.</p>';
+  else h += (data||[]).map(v=>'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid var(--line,#e5e7eb);padding:8px 0"><div><div style="font-weight:600">Versi '+v.version+' · '+esc(cloudTime(v.saved_at))+'</div><div style="font-size:12px;color:#64748b">'+esc(cloudUserName(v.saved_by))+' · '+esc(v.note||'')+'</div></div><button class="btn" data-c="restore" data-id="'+v.id+'">Pulihkan</button></div>').join('') || '<p>Belum ada riwayat.</p>';
+  // v1.9.8: every save (who, when, which parts) from public.project_saves, filled by a database trigger.
+  // Older databases without that table simply skip this section.
+  try{
+    const r = await c.from('project_saves').select('version,saved_by,saved_at,changed').eq('project_id', cloudProj.id).order('id', {ascending:false}).limit(60);
+    if(!r.error && r.data && r.data.length){
+      h += '<div style="font-size:13px;font-weight:600;margin:16px 0 4px">Log simpan (semua simpan, tanpa tombol pulihkan)</div>'+
+        '<table style="width:100%;border-collapse:collapse;font-size:12.5px"><tr style="text-align:left;color:#64748b"><th style="padding:4px 6px 4px 0">Versi</th><th style="padding:4px 6px">Waktu</th><th style="padding:4px 6px">Oleh</th><th style="padding:4px 0 4px 6px">Bagian berubah</th></tr>'+
+        r.data.map(s=>'<tr style="border-top:1px solid var(--line,#e5e7eb)"><td style="padding:4px 6px 4px 0">'+s.version+'</td><td style="padding:4px 6px;white-space:nowrap">'+esc(cloudTime(s.saved_at))+'</td><td style="padding:4px 6px">'+esc(cloudUserName(s.saved_by))+'</td><td style="padding:4px 0 4px 6px">'+esc(cloudPartNames(s.changed))+'</td></tr>').join('')+'</table>';
+    }
+  }catch(e){}
   h += '<div class="row"><button class="btn" data-c="back">Kembali</button></div>';
   cloudShow(h);
 }
