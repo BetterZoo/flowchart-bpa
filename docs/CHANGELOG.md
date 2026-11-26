@@ -1,5 +1,13 @@
 # Changelog Flowchart BPA
 
+## v1.13.0 — Pemicu & serah terima antar-L4 bisa ditambah dan diganti (2026-11-26)
+- Panel Detail Aktivitas punya bagian baru "Pemicu & serah terima (L4 lain)": daftar pemicu (dipicu dari) dan serah terima (diserahkan ke) aktivitas itu, ditambah form "Tambah pemicu" dan "Tambah serah terima".
+- Pilihan aktivitas berasal dari L4 mana pun selain L4 yang sedang dibuka (ketik kode atau nama; daftar saran berisi semua aktivitas AS-IS, dan di mode TO-BE juga aktivitas baru dari rancangan TO-BE L4 lain).
+- Pemicu bisa menggantikan titik Mulai dan serah terima bisa menggantikan titik Selesai (opsi centang, aktif bila aktivitas punya Mulai/Selesai).
+- Klik simbol pemicu/serah terima di flowchart: bagian baru "Ganti sumber pemicu" / "Ganti tujuan serah terima" selain Hapus/pindahkan.
+- AS-IS: Proses Sebelum/Sesudah di L4 lain ikut disesuaikan (kecuali aktivitas sumber punya gateway; sambungkan dari panel gateway-nya). TO-BE: hanya rancangan L4 ini yang berubah.
+- Perbaikan: pengecekan alur memperhitungkan penyesuaian di L4 lain, sehingga pemicu yang menggantikan Mulai tidak ditolak sebagai "tidak tersambung dari Mulai".
+
 ## v1.12.0 — Gabungkan dengan mapping per L3 (2026-11-25)
 - Layar Gabungkan proyek kini punya dua metode: "Bandingkan otomatis" (diff, seperti v1.11) dan "Mapping per L3" (tanpa diff).
 - Mapping per L3: pilih dokumen utama, lalu dokumen sumber untuk tiap L3 (default: dokumen utama bila punya L3 itu; ada pintasan "Semua L3 dari …"). Keterangan "diubah / sama dengan awal" hanya informasi.

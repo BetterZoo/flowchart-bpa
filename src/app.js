@@ -3147,6 +3147,8 @@ function deleteFormHtml(rows,a){
 function applyCrossPatches(px){
   for(const x of (px&&px.out)||[]){ const r=state.rows.find(z=>z.l5no===x.code); if(!r) continue;
     const fs=parseFlow(r[x.field]); const has=fs.some(f=>f.kind==='code'&&f.code===x.to);
+    // v1.13.0: add a link (from ''); never into a gateway's labelled branches
+    if(!x.from){ if(!x.to||has) continue; if(x.field==='next'&&fs.some(f=>f.label)){ (px.skipped=px.skipped||[]).push(x.code); continue; } r[x.field]=flowString([...fs,{kind:'code',code:x.to}]); r._asisEdited=true; continue; }
     const nf=fs.flatMap(f=>f.kind==='code'&&f.code===x.from?((has||!x.to)?[]:[{...f,code:x.to}]):[f]); r[x.field]=flowString(nf); r._asisEdited=true; }
 }
 function structuralConflict(g,code,op,mode){
@@ -3255,6 +3257,32 @@ function renderLegacyAi(){
  else h+=(busy?'<button class="sbtn" data-a="stopAi">Hentikan</button>':'<button class="pbtn" data-a="ai">Usulkan dengan AI</button>')+'<textarea id="freeTxt" placeholder="Instruksi usulan">'+esc(state.freeText||'')+'</textarea><button class="sbtn" data-a="free"'+(busy?' disabled':'')+'>Tambahkan usulan</button>';
  h+='<div id="aiStatus">'+esc(state.aiMsg?.text||'')+'</div><button class="sbtn" data-a="openElab">Buka Riwayat TO-BE</button>';$('detail').innerHTML=h;
 }
+// v1.13.0: Pemicu (from other L4) and Serah terima (to other L4) of one activity — list, open, add
+function crossEventSection(g, code, mode, r){
+  if(!r||mode==='view') return '';
+  const local=new Set((()=>{ try{ return structuralRows(g,mode).map(x=>x.l5no); }catch(e){ return g.acts.map(x=>x.l5no); } })());
+  const name=c=>{ const x=state.byCode.get(c)||extActOf(c,g.l4no,mode); return c+(x?' — '+x.l5:''); };
+  const trig=parseFlow(r.prev).filter(f=>f.kind==='code'&&!local.has(f.code)), hand=parseFlow(r.next).filter(f=>f.kind==='code'&&!local.has(f.code));
+  const hasStart=parseFlow(r.prev).some(f=>f.kind==='start'), hasEnd=parseFlow(r.next).some(f=>f.kind==='end');
+  const li=(k,f)=>'<li><a href="#" data-xev="'+k+'" data-xsrc="'+esc(f.code)+'">'+esc(name(f.code))+'</a>'+(f.label?' <span class="muted">('+esc(f.label)+')</span>':'')+'</li>';
+  return extActDatalist(g.l4no,mode)+'<div class="ws-section"><strong class="ws-section-title">Pemicu &amp; serah terima (L4 lain)</strong>'+
+    '<p class="ws-field-hint" style="margin-top:0">Klik untuk mengganti atau menghapus.</p>'+
+    '<div style="font-size:13px"><b>Dipicu dari:</b> '+(trig.length?'<ul style="margin:2px 0 6px 18px;padding:0">'+trig.map(f=>li('trig',f)).join('')+'</ul>':'<span class="muted">tidak ada</span>')+'</div>'+
+    '<div style="font-size:13px"><b>Diserahkan ke:</b> '+(hand.length?'<ul style="margin:2px 0 6px 18px;padding:0">'+hand.map(f=>li('hand',f)).join('')+'</ul>':'<span class="muted">tidak ada</span>')+'</div>'+
+    extPicker('xTrigAdd','Tambah pemicu dari aktivitas (L4 lain)')+(hasStart?'<label style="font-size:12.5px;display:block;margin:2px 0"><input type="checkbox" id="xTrigStart" checked> Ganti titik Mulai '+esc(code)+' dengan pemicu ini</label>':'')+
+    '<div class="cbtn"><button class="sbtn" id="xTrigBtn">＋ Tambah pemicu</button></div>'+
+    extPicker('xHandAdd','Tambah serah terima ke aktivitas (L4 lain)')+(hasEnd?'<label style="font-size:12.5px;display:block;margin:2px 0"><input type="checkbox" id="xHandEnd" checked> Ganti titik Selesai setelah '+esc(code)+' dengan serah terima ini</label>':'')+
+    '<div class="cbtn"><button class="sbtn" id="xHandBtn">＋ Tambah serah terima</button></div>'+
+    '<p class="ws-field-hint">'+(mode==='asis'?'Proses Sebelum/Sesudah di L4 lain ikut disesuaikan.':'Di TO-BE hanya L4 ini yang diubah; L4 lain tetap.')+'</p></div>';
+}
+function mountCrossEvents(g, code, mode){
+  const d=$('detail'), errAt=id=>m=>{ const o=$('xevError'); if(o) o.remove(); const p=document.createElement('p'); p.id='xevError'; p.setAttribute('role','alert'); p.style.cssText='color:#a21d32;font-weight:600;margin:6px 0'; p.textContent=m; $(id).parentElement.insertAdjacentElement('beforebegin',p); };
+  d.querySelectorAll('[data-xev]').forEach(a=>a.onclick=e=>{ e.preventDefault(); eventEditor(a.dataset.xev, code, a.dataset.xsrc); });
+  const tb=$('xTrigBtn'); if(tb) tb.onclick=()=>{ const E=extCodeOf($('xTrigAdd').value); if(!E) return toast('Pilih aktivitas di L4 lain.'); const rs=!!($('xTrigStart')&&$('xTrigStart').checked);
+    applyEventSpec(g,mode,code,{kind:'trigAdd',ext:E,replaceStart:rs},'Tambahkan pemicu dari '+E+' ke '+code+(rs?' (menggantikan titik Mulai)':'')+' pada '+(mode==='asis'?'AS-IS':'TO-BE')+'?',errAt('xTrigBtn')); };
+  const hb=$('xHandBtn'); if(hb) hb.onclick=()=>{ const E=extCodeOf($('xHandAdd').value); if(!E) return toast('Pilih aktivitas di L4 lain.'); const re=!!($('xHandEnd')&&$('xHandEnd').checked);
+    applyEventSpec(g,mode,code,{kind:'handAdd',ext:E,replaceEnd:re},'Tambahkan serah terima dari '+code+' ke '+E+(re?' (menggantikan titik Selesai)':'')+' pada '+(mode==='asis'?'AS-IS':'TO-BE')+'?',errAt('xHandBtn')); };
+}
 function directEditor(code){
   const mode=$('processEditMode').value, base=state.byCode.get(code), group=state.l4s.get(state.current);let draft;try{if(mode==='tobe'&&group)draft=materializeDraft(group);}catch(e){return toast(e.message);}if(draft&&draft.map[code])code=draft.map[code];const r=draft?draft.rows.find(a=>a.l5no===code):base; if(!r || mode==='view') return showDetail(code);
   const g=state.l4s.get(r.l4no), list=state.elab[r.l4no]||[];
@@ -3278,10 +3306,11 @@ function directEditor(code){
   $('detail').dataset.code=code;
   const df=(k,v)=>v?'<dt>'+esc(k)+'</dt><dd>'+esc(v)+'</dd>':'';
   const extra=state.extra[code]||{};
-  $('detail').innerHTML='<button class="tb x" data-a="close" aria-label="Tutup detail">✕</button><div class="ws-panel-title">Detail Aktivitas</div><div class="dcode">'+esc(mode==='asis'?code:dispNo(code))+' · '+(mode==='asis'?'AS-IS':'TO-BE')+(mode!=='asis'&&dispNo(code)!==code?' <span title="Kode internal (tetap, dipakai untuk riwayat dan perbandingan)">· id '+esc(code)+'</span>':'')+'</div><h3>'+esc(rn?rn.text:r.l5)+'</h3><p class="muted">'+(mode==='asis'?'Koreksi proses existing.':'Rancang perbaikan tanpa mengubah AS-IS.')+'</p><div class="ws-detail-fields"><label for="directName">Nama aktivitas</label><textarea id="directName" rows="3">'+esc(rn?rn.text:r.l5)+'</textarea>'+assignmentFields+outFields+'</div><div class="cbtn"><button class="sbtn ws-primary" id="directSave">Simpan '+(mode==='asis'?'koreksi':'usulan')+'</button><button class="sbtn" id="directCancel">Batal</button></div><div class="ws-section"><details><summary>Informasi aktivitas</summary><dl>'+df('Uraian',r.desc)+df('Jabatan',r.posX)+df('Unit',r.unitX)+df('Role keputusan',r.decisionRole)+df('Input',r.inputX)+df('Output',r.outputX)+df('Dokumen',r.docX)+df('Sistem/Aplikasi',r.systemX)+df('Proses sebelum',r.prev)+df('Proses sesudah',r.next)+df('SLA',extra.sla)+df('Dokumen / output',extra.out)+df('Catatan',extra.note||r.note)+df('Pihak pemberi input',r.inParty)+df('Pihak penerima output',r.outParty)+df('Decision Ref',r.dec)+df('Catatan peran',r.noteRole)+df('Dasar antarmuka',r.iface)+'</dl><button class="sbtn" id="workspaceNotes">Tambah / edit dokumen & SLA</button></details></div><div class="ws-section"><strong class="ws-section-title">Ubah alur proses</strong><div class="ws-detail-actions"><button class="sbtn" id="structAdd">＋ Tambah aktivitas (sebelum / sesudah / di cabang)</button><button class="sbtn" id="structMove">↕ Pindahkan urutan aktivitas</button><button class="sbtn" id="structConn">→ Ubah aktivitas berikutnya</button><button class="sbtn" id="structDecision">◇ Tambahkan / edit keputusan</button><button class="sbtn no" id="structDel">Hapus aktivitas</button></div></div>';
+  $('detail').innerHTML='<button class="tb x" data-a="close" aria-label="Tutup detail">✕</button><div class="ws-panel-title">Detail Aktivitas</div><div class="dcode">'+esc(mode==='asis'?code:dispNo(code))+' · '+(mode==='asis'?'AS-IS':'TO-BE')+(mode!=='asis'&&dispNo(code)!==code?' <span title="Kode internal (tetap, dipakai untuk riwayat dan perbandingan)">· id '+esc(code)+'</span>':'')+'</div><h3>'+esc(rn?rn.text:r.l5)+'</h3><p class="muted">'+(mode==='asis'?'Koreksi proses existing.':'Rancang perbaikan tanpa mengubah AS-IS.')+'</p><div class="ws-detail-fields"><label for="directName">Nama aktivitas</label><textarea id="directName" rows="3">'+esc(rn?rn.text:r.l5)+'</textarea>'+assignmentFields+outFields+'</div><div class="cbtn"><button class="sbtn ws-primary" id="directSave">Simpan '+(mode==='asis'?'koreksi':'usulan')+'</button><button class="sbtn" id="directCancel">Batal</button></div><div class="ws-section"><details><summary>Informasi aktivitas</summary><dl>'+df('Uraian',r.desc)+df('Jabatan',r.posX)+df('Unit',r.unitX)+df('Role keputusan',r.decisionRole)+df('Input',r.inputX)+df('Output',r.outputX)+df('Dokumen',r.docX)+df('Sistem/Aplikasi',r.systemX)+df('Proses sebelum',r.prev)+df('Proses sesudah',r.next)+df('SLA',extra.sla)+df('Dokumen / output',extra.out)+df('Catatan',extra.note||r.note)+df('Pihak pemberi input',r.inParty)+df('Pihak penerima output',r.outParty)+df('Decision Ref',r.dec)+df('Catatan peran',r.noteRole)+df('Dasar antarmuka',r.iface)+'</dl><button class="sbtn" id="workspaceNotes">Tambah / edit dokumen & SLA</button></details></div><div class="ws-section"><strong class="ws-section-title">Ubah alur proses</strong><div class="ws-detail-actions"><button class="sbtn" id="structAdd">＋ Tambah aktivitas (sebelum / sesudah / di cabang)</button><button class="sbtn" id="structMove">↕ Pindahkan urutan aktivitas</button><button class="sbtn" id="structConn">→ Ubah aktivitas berikutnya</button><button class="sbtn" id="structDecision">◇ Tambahkan / edit keputusan</button><button class="sbtn no" id="structDel">Hapus aktivitas</button></div></div>'+crossEventSection(g,code,mode,r);
   $('detail').insertAdjacentHTML('beforeend',annotationSection(g,code,mode));
   $('workspaceNotes').onclick=()=>openExtra(code);
   mountDocsSection(code);
+  mountCrossEvents(g,code,mode);
   $('structMove').onclick=()=>structuralEditor(code,'move');$('structAdd').onclick=()=>structuralEditor(code,'add');$('structConn').onclick=()=>structuralEditor(code,'connector','next');$('structDecision').onclick=()=>structuralEditor(code,'connector','decision');$('structDel').onclick=()=>structuralEditor(code,'delete');
   $('detail').classList.remove('hidden');
   $('directCancel').onclick=()=>{$('detail').classList.add('hidden');state.sideMode=null;};
@@ -3513,14 +3542,64 @@ function eventChange(rows, s){
   } else if(s.kind==='hand'){
     const fl=parseFlow(a.next), rem=fl.filter(f=>f.kind==='code'&&f.code===s.src); if(!rem.length) throw Error('Serah terima ke '+s.src+' tidak ditemukan.');
     linkTo(f=>f.kind==='code'&&f.code===s.src, s.nextTo); patches.out.push({code:s.src, field:'prev', from:a.l5no, to:''});
+  } else if(s.kind==='trigAdd'||s.kind==='trigEdit'||s.kind==='handAdd'||s.kind==='handEdit'){
+    // v1.13.0: add / change triggers (Pemicu) and handoffs (Serah terima) to activities in OTHER L4
+    const E=s.ext; if(!E) throw Error('Pilih aktivitas di L4 lain.'); if(local.has(E)) throw Error(E+' ada di L4 ini. Pemicu/serah terima hanya untuk aktivitas di L4 lain; untuk L4 ini pakai "Ubah aktivitas berikutnya".');
+    if(!extActOf(E,l4,s.mode)) throw Error('Aktivitas '+E+' tidak ditemukan di L4 lain.');
+    if(s.kind==='trigAdd'||s.kind==='trigEdit'){
+      const pv=parseFlow(a.prev); if(pv.some(f=>f.kind==='code'&&f.code===E)) throw Error(E+' sudah menjadi pemicu '+a.l5no+'.');
+      if(s.kind==='trigAdd'){ let np=pv; if(s.replaceStart){ np=np.filter(f=>f.kind!=='start'); a.startLabel=''; } a.prev=flowString([...np,{kind:'code',code:E}]); }
+      else { if(!pv.some(f=>f.kind==='code'&&f.code===s.src)) throw Error('Pemicu dari '+s.src+' tidak ditemukan di '+a.l5no+'.');
+        a.prev=flowString(pv.map(f=>f.kind==='code'&&f.code===s.src?{...f,code:E}:f));
+        a.dataFrom=String(a.dataFrom||'').split(/[;,\s]+/).filter(Boolean).map(c=>c===s.src?E:c).join('; ');
+        patches.out.push({code:s.src, field:'next', from:a.l5no, to:''}); }
+      patches.out.push({code:E, field:'next', from:'', to:a.l5no});
+    } else {
+      const fl=parseFlow(a.next); if(fl.some(f=>f.kind==='code'&&f.code===E)) throw Error(a.l5no+' sudah diserahkan ke '+E+'.');
+      if(s.kind==='handAdd'){ if(fl.some(f=>f.label)) throw Error(a.l5no+' punya gateway. Tambahkan serah terima pada cabangnya lewat panel gateway (klik dua kali belah ketupatnya).');
+        let nf=fl; if(s.replaceEnd){ nf=nf.filter(f=>f.kind!=='end'); a.endLabel=''; } a.next=flowString([...nf,{kind:'code',code:E}]); }
+      else { if(!fl.some(f=>f.kind==='code'&&f.code===s.src)) throw Error('Serah terima ke '+s.src+' tidak ditemukan.');
+        a.next=flowString(fl.map(f=>f.kind==='code'&&f.code===s.src?{...f,code:E}:f)); patches.out.push({code:s.src, field:'prev', from:a.l5no, to:''}); }
+      patches.out.push({code:E, field:'prev', from:'', to:a.l5no});
+    }
   } else throw Error('Jenis simbol tidak dikenal.');
-  const outside=state.rows.filter(r=>r.l4no!==l4);
+  // v1.13.0: validate as if the other L4 already carries the adjusted links (they are applied on save)
+  const outside=state.rows.filter(r=>r.l4no!==l4).map(r=>{ const ps=patches.out.filter(x=>x.code===r.l5no); if(!ps.length) return r; const c={...r};
+    for(const x of ps){ const fs=parseFlow(c[x.field]); if(!x.from){ if(x.to&&!fs.some(f=>f.kind==='code'&&f.code===x.to)&&!(x.field==='next'&&fs.some(f=>f.label))) c[x.field]=flowString([...fs,{kind:'code',code:x.to}]); }
+      else c[x.field]=flowString(fs.flatMap(f=>f.kind==='code'&&f.code===x.from?(x.to?[{...f,code:x.to}]:[]):[f])); } return c; });
   const before=validateWorkbookRows([...outside,...structuralRows(state.l4s.get(l4),s.mode)]), old=new Set(before.map(w=>w.code+'|'+w.msg));
   const issues=validateWorkbookRows([...outside,...rows]).filter(w=>!old.has(w.code+'|'+w.msg));
   const crossMsg=w=>w.l4!==l4||(String(w.msg).match(/(?:mengarah ke|menyebut|mencantumkan) (\d+\.\d+(?:\.\d+)?)/g)||[]).some(x=>!local.has(x.split(' ').pop()));
   const hard=issues.filter(w=>!crossMsg(w));
   if(hard.length){ const h=hard[0]; if(/tidak dapat dicapai|Proses Sebelum kosong/.test(h.msg)) throw Error('Aktivitas '+h.code+' jadi tidak tersambung dari Mulai. Isi "sambungkan dari" atau "pindahkan ke" supaya alurnya tidak putus.'); if(/SELESAI/.test(h.msg)) throw Error('Proses jadi tidak punya jalur ke Selesai. Isi "tambahkan Selesai setelah" atau "lanjut ke".'); throw Error('Perubahan ditolak: '+h.msg); }
   rows.patches=patches; return rows;
+}
+// v1.13.0: activities in other L4 that can be a trigger source / handoff target (AS-IS, plus new TO-BE activities in TO-BE mode)
+function extActs(l4no, mode){
+  const out=new Map(); for(const r of state.rows) if(r.l4no!==l4no&&!isGateRow(r)) out.set(r.l5no,r);
+  if(mode==='tobe') for(const g of state.l4s.values()){ if(g.l4no===l4no) continue; const gr=draftGraph(g); if(!gr) continue; try{ for(const r of JSON.parse(gr.text)) if(!isGateRow(r)&&!out.has(r.l5no)) out.set(r.l5no,{...r,_tobe:true}); }catch(e){} }
+  return [...out.values()].sort((a,b)=>cmpCode(a.l5no,b.l5no));
+}
+function extActOf(code, l4no, mode){ return extActs(l4no, mode).find(r=>r.l5no===code); }
+function extActDatalist(l4no, mode){ return '<datalist id="extActList">'+extActs(l4no,mode).map(r=>'<option value="'+esc(r.l5no+' — '+r.l5+(r._tobe?' (baru, TO-BE)':''))+'">').join('')+'</datalist>'; }
+const extCodeOf=v=>String(v||'').split(/\s+[—-]\s+/)[0].trim();
+function extPicker(id, label, ph){ return '<label for="'+id+'">'+esc(label)+'</label><input id="'+id+'" list="extActList" autocomplete="off" placeholder="'+esc(ph||'Ketik kode atau nama aktivitas, mis. 07.02.01')+'">'; }
+// apply an eventChange spec to the open L4 (shared by the symbol panel and the activity panel)
+function applyEventSpec(g, mode, actCode, spec, msg, onError){
+  try{
+    if(state.current!==g.l4no||$('processEditMode').value!==mode) throw Error('Buka kembali panel pada mode aktif.');
+    if(mode==='view') throw Error('Pilih mode AS-IS atau TO-BE dulu.');
+    if(mode==='asis'&&draftGraph(g)) throw Error('Selesaikan rancangan TO-BE sebelum koreksi AS-IS.');
+    const fresh=structuralRows(g,mode), absorbed=consumedIds(fresh), result=eventChange(fresh,{...spec,code:actCode,mode}), px=result.patches;
+    if(spec.labelOnly&&spec.kind==='end'&&oneEnd()) for(const r of result) if(parseFlow(r.next).some(f=>f.kind==='end')) r.endLabel=spec.label==='Selesai'?'':spec.label;
+    if(!spec.labelOnly){ const cross=uniq(px.out.map(x=>x.code)); if(!confirm(msg+(cross.length?(mode==='asis'?'\n\nHubungan di '+cross.join(', ')+' ikut disesuaikan.':'\n\nCatatan: '+cross.join(', ')+' di L4 lain tidak diubah (rancangan TO-BE hanya untuk L4 ini).'):''))) return false; }
+    const prior=snapshot(); storageFailed=false;
+    if(mode==='asis'){ result.forEach(r=>r._asisEdited=true); applyCrossPatches(px); ingest([...state.rows.filter(r=>r.l4no!==g.l4no),...result],state.fileName); select(g.l4no); }
+    else saveUnifiedDraft(g,result,absorbed,'Ubah simbol '+spec.kind+' '+actCode);
+    undoStack.push({before:prior,after:snapshot()}); $('detail').classList.add('hidden'); state.sideMode=null;
+    if(!storageFailed) toast(spec.labelOnly?'Label disimpan.':'Perubahan disimpan.'+(px.skipped&&px.skipped.length?' '+uniq(px.skipped).join(', ')+' punya gateway; sambungkan sisi L4 itu lewat panel gateway-nya.':''), 7000);
+    return true;
+  }catch(e){ if(onError) onError(e.message); toast(e.message,9000); return false; }
 }
 function eventEditor(kind, actCode, src){
   const g=state.l4s.get(state.current), mode=$('processEditMode').value; if(!g) return;
@@ -3541,6 +3620,7 @@ function eventEditor(kind, actCode, src){
   if(kind==='start'||kind==='end') h+='<label for="evLabel">Label</label><input id="evLabel" maxlength="120" value="'+esc(lab)+'"><div class="cbtn"><button class="sbtn" id="evSaveLabel">Simpan label</button></div>';
   if(kind==='trig'&&srcs.length>1) h+='<label for="evSrc">Pemicu</label><select id="evSrc">'+srcs.map(c=>'<option value="'+esc(c)+'">'+esc(ext(c))+'</option>').join('')+'</select>';
   if(kind==='hand') h+='<p>Serah terima ke <b>'+esc(ext(srcs[0]))+'</b>.</p>';
+  if(kind==='trig'||kind==='hand'){ h+=extActDatalist(g.l4no,mode)+'<div class="ws-section"><strong class="ws-section-title">'+(kind==='trig'?'Ganti sumber pemicu':'Ganti tujuan serah terima')+'</strong>'+extPicker('evExt',kind==='trig'?'Dipicu dari aktivitas (L4 lain)':'Diserahkan ke aktivitas (L4 lain)')+'<p class="ws-field-hint">Boleh aktivitas di L4 mana pun selain L4 ini.'+(mode==='asis'?' Proses Sebelum/Sesudah di L4 lama dan baru ikut disesuaikan.':' Di TO-BE, L4 lain tidak diubah.')+'</p><div class="cbtn"><button class="sbtn ws-primary" id="evEdit">Simpan perubahan</button></div></div>'; }
   h+='<div class="ws-section"><strong class="ws-section-title">'+esc({start:'Hapus / pindahkan Mulai',end:'Hapus / pindahkan Selesai',trig:'Hapus / pindahkan pemicu',hand:'Hapus serah terima'}[kind])+'</strong>';
   if(kind==='start'||kind==='trig'){
     h+='<label for="evAddTo">Pindahkan ke aktivitas (opsional)</label><select id="evAddTo">'+opt('','— tidak dipindah, hapus saja —')+'</select>'+
@@ -3553,21 +3633,12 @@ function eventEditor(kind, actCode, src){
   }
   h+='<div class="cbtn"><button class="sbtn no" id="evRemove">'+esc({start:'Hapus Mulai',end:'Hapus Selesai',trig:'Hapus pemicu',hand:'Hapus serah terima'}[kind])+'</button></div></div>';
   detail.innerHTML=h; detail.classList.remove('hidden');
-  const run=(spec,msg)=>{ const old=$('evError'); if(old) old.remove();
-    try{
-      if(state.current!==g.l4no||$('processEditMode').value!==mode) throw Error('Buka kembali simbol pada mode aktif.');
-      if(mode==='asis'&&draftGraph(g)) throw Error('Selesaikan rancangan TO-BE sebelum koreksi AS-IS.');
-      const fresh=structuralRows(g,mode), absorbed=consumedIds(fresh), result=eventChange(fresh,{...spec,code:actCode,mode}), px=result.patches;
-      if(spec.labelOnly&&kind==='end'&&oneEnd()) for(const r of result) if(parseFlow(r.next).some(f=>f.kind==='end')) r.endLabel=spec.label==='Selesai'?'':spec.label;
-      if(!spec.labelOnly){ const cross=uniq(px.out.map(x=>x.code)); if(!confirm(msg+(cross.length?(mode==='asis'?'\n\nHubungan di '+cross.join(', ')+' ikut disesuaikan.':'\n\nCatatan: '+cross.join(', ')+' di AS-IS masih mencatat hubungan lama.'):''))) return; }
-      const prior=snapshot(); storageFailed=false;
-      if(mode==='asis'){ result.forEach(r=>r._asisEdited=true); applyCrossPatches(px); ingest([...state.rows.filter(r=>r.l4no!==g.l4no),...result],state.fileName); select(g.l4no); }
-      else saveUnifiedDraft(g,result,absorbed,'Ubah simbol '+kind+' '+actCode);
-      undoStack.push({before:prior,after:snapshot()}); detail.classList.add('hidden'); state.sideMode=null;
-      if(!storageFailed) toast(spec.labelOnly?'Label disimpan.':'Perubahan disimpan.');
-    }catch(e){ const p=document.createElement('p'); p.id='evError'; p.setAttribute('role','alert'); p.style.cssText='color:#a21d32;font-weight:600;margin:10px 0'; p.textContent=e.message; $('evRemove').parentElement.insertAdjacentElement('beforebegin',p); toast(e.message,9000); } };
+  const run=(spec,msg,anchor)=>{ const old=$('evError'); if(old) old.remove();
+    applyEventSpec(g,mode,actCode,spec,msg,m=>{ const p=document.createElement('p'); p.id='evError'; p.setAttribute('role','alert'); p.style.cssText='color:#a21d32;font-weight:600;margin:10px 0'; p.textContent=m; $(anchor||'evRemove').parentElement.insertAdjacentElement('beforebegin',p); }); };
   const v=id=>($(id)&&$(id).value)||'';
   if($('evWhich')) $('evWhich').onchange=()=>eventEditor('end',$('evWhich').value,'');
+  if($('evEdit')) $('evEdit').onclick=()=>{ const E=extCodeOf(v('evExt')), cur=kind==='trig'?(v('evSrc')||srcs[0]):srcs[0]; if(!E) return toast('Pilih aktivitas di L4 lain.');
+    run({kind:kind==='trig'?'trigEdit':'handEdit',src:cur,ext:E},(kind==='trig'?'Ganti pemicu '+actCode+' dari '+cur+' menjadi '+E:'Ganti serah terima '+actCode+' dari '+cur+' menjadi '+E)+' pada '+(mode==='asis'?'AS-IS':'TO-BE')+'?','evEdit'); };
   if($('evSaveLabel')) $('evSaveLabel').onclick=()=>{ const t=v('evLabel').trim(); if(!t) return toast('Label wajib diisi.'); run({kind,label:t,labelOnly:true},''); };
   $('evRemove').onclick=()=>{
     const spec={kind,remove:true,src:kind==='trig'?(v('evSrc')||srcs[0]):srcs[0],addTo:v('evAddTo'),connectFrom:v('evFrom'),nextTo:v('evNext')};
